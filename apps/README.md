@@ -9,14 +9,18 @@ apps/
 │   ├── anthropic_api.py  la API compatible con la de Anthropic (/v1): peticiones, respuestas, eventos
 │   ├── engine.py   lógica del modelo, sin dependencias web: checkpoints, prompts, generación
 │   └── store.py    historial de conversaciones en SQLite (data/chat.db)
-└── web/            React + Vite: la interfaz
+└── web/            React + Vite + Tailwind CSS v4 + shadcn/ui: la interfaz
     ├── src/App.jsx              estado: modelos, historial, conversación actual, ajustes, envío
+    ├── src/index.css            Tailwind y el tema: las variables de shadcn con la paleta de Leon (claro y oscuro)
     ├── src/api.js               cliente: traduce /v1 (Anthropic) y /api/conversations a la forma de la app
     ├── src/format.js            estadísticas de cada respuesta y grupos del historial por fecha
     ├── src/preferences.js       ajustes, último modelo y modo (localStorage)
-    ├── src/hooks/               useAutoScroll, useMediaQuery, useToasts
-    └── src/components/          Sidebar, ConversationItem, Menu, Header, Thread, Message, Welcome,
-                                 Composer, SettingsDialog, Modal, Toasts, Icon
+    ├── src/lib/utils.js         cn(): une clases de Tailwind (clsx + tailwind-merge)
+    ├── src/hooks/               useAutoScroll, useMediaQuery, useContextUsage
+    ├── src/components/          Sidebar, ConversationItem, Header, Thread, Message, Welcome,
+    │                            Composer, ContextMeter, SettingsDialog
+    └── src/components/ui/       componentes de shadcn/ui (button, dialog, alert-dialog, dropdown-menu,
+                                 select, toggle-group, tooltip, popover, slider, sheet, sonner…)
 ```
 
 ## Uso
@@ -61,8 +65,8 @@ Vite reenvía las peticiones `/api` a Flask. Si la API está en otro puerto: `$e
   - **Desplazamiento inteligente**: la vista sigue el texto mientras estás abajo; si subes para releer, deja de seguirlo y aparece **Ir al final**.
   - Bajo cada respuesta: **Copiar**, **Regenerar** (la última) y las estadísticas. El último mensaje (o el último texto en Completar) se puede **editar y reenviar**.
   - En **Completar** tu texto aparece resaltado y la continuación del modelo en texto normal.
-  - Un error se muestra dentro de la respuesta con **Reintentar**; los avisos breves (copiado, renombrada, errores) salen arriba.
-  - Limitación: la API actual solo añade mensajes, así que al regenerar o editar el intento anterior se reemplaza en pantalla pero sigue guardado, y reaparece al reabrir la conversación.
+  - Un error se muestra dentro de la respuesta con **Reintentar**; los avisos breves (copiado, renombrada, errores) salen abajo (Sonner).
+  - Al regenerar o editar, el intento anterior se borra también del historial guardado.
 - **Ajustes** abre un diálogo con las instrucciones del sistema, la temperatura, el top-k y los tokens máximos. Los ajustes, el último modelo y el último modo se recuerdan en el navegador (`localStorage`).
 - **Atajos de teclado** (también listados en Ajustes):
 
@@ -73,9 +77,11 @@ Vite reenvía las peticiones `/api` a Flask. Si la API está en otro puerto: `$e
   | `Enter` / `Shift+Enter` | Enviar / nueva línea |
   | `Esc` | Detener la respuesta, o cerrar el menú, el diálogo o el panel lateral |
 
-- **Accesibilidad**: anillo de foco visible solo con teclado, diálogos nativos (`<dialog>`) que atrapan el foco, regiones `aria-live` para los avisos, y contraste suficiente en ambos temas. Las animaciones son sutiles y desaparecen con `prefers-reduced-motion`.
-- **Temas**: claro y oscuro según el sistema (`prefers-color-scheme`). Colores, espacios, radios, sombras y tamaños de letra son variables CSS al principio de `src/styles.css`.
-- **Móvil** (hasta 360 px): el lateral se abre como panel con ☰ y lo que queda detrás se vuelve inerte (`inert`).
+- **Accesibilidad**: los diálogos, menús, selector y panel lateral son primitivas de Radix (vía shadcn/ui), que atrapan el foco, se manejan con teclado y llevan sus roles ARIA. El anillo de foco solo aparece con teclado, los avisos se anuncian a los lectores de pantalla y el contraste es suficiente en ambos temas. Las animaciones son sutiles y desaparecen con `prefers-reduced-motion`.
+- **Estilos**: Tailwind CSS v4 (plugin de Vite) con los componentes de [shadcn/ui](https://ui.shadcn.com), escritos en JavaScript en `src/components/ui/` sobre `radix-ui`.
+  - Son código del proyecto, no una dependencia: se pueden cambiar a mano.
+  - **Temas**: claro y oscuro según el sistema (`prefers-color-scheme`). Los colores son las variables de shadcn (`--background`, `--primary`, `--muted`…) más las propias de Leon (`--bubble`, `--prompt`, `--ctx-*`), definidas en `src/index.css` y usadas como clases (`bg-primary`, `text-muted-foreground`).
+- **Móvil** (hasta 360 px): por debajo de 768 px el lateral se abre como panel (Sheet) con ☰, y lo que queda detrás no recibe foco ni clics.
 
 ## API
 

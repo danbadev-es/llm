@@ -1,4 +1,7 @@
-import Icon from "./Icon.jsx";
+import { MenuIcon, SquarePenIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const MODES = [
   ["complete", "Completar", "El modelo continúa tu texto"],
@@ -18,60 +21,56 @@ function groupModels(models) {
   return [...groups];
 }
 
-function modelTitle(model) {
-  return model ? `${model.name} · ${(model.params / 1e6).toFixed(1)}M parámetros · contexto ${model.context} · paso ${model.step}` : "";
-}
+const modelDetails = (model) =>
+  `${(model.params / 1e6).toFixed(1)}M parámetros · contexto ${model.context} · paso ${model.step}`;
 
 // Top of the conversation: menu and new-chat buttons (phones), the model picker and the mode.
-// The picker is a styled native <select>: it is keyboard and screen-reader friendly everywhere,
-// and on phones it opens the system's own picker.
 export default function Header({ models, model, modelsState, onModelChange, mode, onModeChange, onOpenSidebar, onNewChat }) {
   const placeholder = { loading: "Cargando modelos…", error: "Sin conexión", ready: "Sin modelos" }[modelsState];
 
   return (
-    <header className="topbar">
-      <button className="icon-button mobile-only" type="button" aria-label="Abrir menú" onClick={onOpenSidebar}>
-        <Icon name="menu" size={20} />
-      </button>
+    <header className="flex h-14 shrink-0 items-center gap-1 border-b px-2 md:gap-2 md:px-4">
+      <Button variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menú" onClick={onOpenSidebar}>
+        <MenuIcon className="size-5" />
+      </Button>
 
-      <div className="model-picker" title={modelTitle(model)}>
-        <select
-          aria-label="Modelo"
-          value={model?.name ?? ""}
-          disabled={models.length === 0}
-          onChange={(e) => onModelChange(e.target.value)}
-        >
-          {models.length === 0 && <option value="">{placeholder}</option>}
+      <Select value={model?.name ?? ""} onValueChange={onModelChange} disabled={models.length === 0}>
+        <SelectTrigger aria-label="Modelo" className="min-w-0 flex-1 font-semibold hover:bg-accent md:max-w-xs md:flex-none">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent align="start" className="max-w-[calc(100vw-1rem)]">
           {groupModels(models).map(([group, items]) => (
-            <optgroup key={group} label={group || "Modelos"}>
+            <SelectGroup key={group}>
+              <SelectLabel>{group || "Modelos"}</SelectLabel>
               {items.map((m) => (
-                <option key={m.name} value={m.name}>
+                <SelectItem key={m.name} value={m.name} description={modelDetails(m)}>
                   {m.label}
-                </option>
+                </SelectItem>
               ))}
-            </optgroup>
+            </SelectGroup>
           ))}
-        </select>
-        <Icon name="chevronDown" size={16} className="model-picker-chevron" />
-      </div>
+        </SelectContent>
+      </Select>
 
-      <div className="segmented" role="group" aria-label="Modo">
+      <ToggleGroup
+        type="single"
+        aria-label="Modo"
+        className="ml-auto"
+        value={mode}
+        onValueChange={(value) => value && onModeChange(value)} // clicking the active mode keeps it
+      >
+        {/* A plain title, not a Radix Tooltip: the tooltip trigger would overwrite the item's
+            data-state="on", which is what marks the active mode. */}
         {MODES.map(([value, text, description]) => (
-          <button
-            key={value}
-            type="button"
-            title={description}
-            aria-pressed={mode === value}
-            onClick={() => onModeChange(value)}
-          >
+          <ToggleGroupItem key={value} value={value} title={description} className="px-2.5 sm:px-3">
             {text}
-          </button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
 
-      <button className="icon-button mobile-only" type="button" aria-label="Nueva conversación" onClick={onNewChat}>
-        <Icon name="newChat" size={19} />
-      </button>
+      <Button variant="ghost" size="icon" className="md:hidden" aria-label="Nueva conversación" onClick={onNewChat}>
+        <SquarePenIcon className="size-[19px]" />
+      </Button>
     </header>
   );
 }

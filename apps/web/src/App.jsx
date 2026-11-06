@@ -1,4 +1,9 @@
+import { CircleAlertIcon, TriangleAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast as sonner } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   createConversation,
   deleteConversation,
@@ -12,20 +17,22 @@ import {
 import Composer from "./components/Composer.jsx";
 import ContextMeter from "./components/ContextMeter.jsx";
 import Header from "./components/Header.jsx";
-import Icon from "./components/Icon.jsx";
 import SettingsDialog from "./components/SettingsDialog.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Thread from "./components/Thread.jsx";
-import Toasts from "./components/Toasts.jsx";
 import useContextUsage from "./hooks/useContextUsage.js";
 import useMediaQuery from "./hooks/useMediaQuery.js";
-import useToasts from "./hooks/useToasts.js";
 import { loadMode, loadModelName, loadSettings, saveMode, saveModelName, saveSettings } from "./preferences.js";
 
-// Must match the drawer breakpoint in styles.css.
-const PHONE_QUERY = "(max-width: 760px)";
+// Below Tailwind's md breakpoint the history becomes a drawer (md:hidden / max-md: in the components).
+const PHONE_QUERY = "(max-width: 767px)";
 
 const isTyping = (element) => element?.closest?.("input, textarea, select, [contenteditable]");
+// A Radix dialog, drawer, menu or list is open: it owns the keyboard (Esc closes it, not the answer).
+const OVERLAY_OPEN = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+
+// toast("Copiado") or toast("Algo falló", "error"), shown by shadcn's Sonner toaster.
+const toast = (message, tone = "info") => (tone === "error" ? sonner.error(message) : sonner.success(message));
 
 // A message: {role: "user" | "assistant", content, prompt?, stats?, error?, streaming?}
 // In "complete" mode the assistant message also carries the prompt it continued.
@@ -48,7 +55,6 @@ export default function App() {
   // The thread re-pins its scroll to the bottom whenever pinKey changes.
   const [viewKey, setViewKey] = useState(0);
   const [pinKey, setPinKey] = useState(0);
-  const { toasts, toast, dismiss } = useToasts();
   const isPhone = useMediaQuery(PHONE_QUERY);
   const composerRef = useRef(null);
   const controllerRef = useRef(null);
@@ -320,11 +326,11 @@ export default function App() {
 
   // Global shortcuts. The handler is registered once and reads the latest state through a ref.
   const shortcuts = useRef(null);
-  shortcuts.current = { newChat, stop, busy, sidebarOpen, closeSidebar: () => setSidebarOpen(false), focusComposer };
+  shortcuts.current = { newChat, stop, busy, focusComposer };
   useEffect(() => {
     function onKeyDown(e) {
       const s = shortcuts.current;
-      if (document.querySelector("dialog[open]")) return; // the dialog owns the keyboard
+      if (e.defaultPrevented || document.querySelector(OVERLAY_OPEN)) return; // a Radix layer handled it
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         s.newChat();
@@ -334,7 +340,6 @@ export default function App() {
         s.focusComposer({ force: true });
       } else if (e.key === "Escape") {
         if (s.busy) s.stop();
-        else if (s.sidebarOpen) s.closeSidebar();
       } else if (e.key === "/" && !isTyping(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         s.focusComposer({ force: true });
@@ -344,34 +349,37 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const noticeClass = "mb-6 flex items-start gap-3 rounded-xl border px-4 py-3 text-[13px] leading-normal";
+  const noticeButton = "shrink-0 border-current bg-transparent text-inherit hover:bg-black/5 dark:hover:bg-white/5";
   const notice =
     modelsState === "error" ? (
-      <div className="notice error" role="alert">
-        <Icon name="alert" size={18} />
-        <p>No se pudo contactar con la API. ¿Está corriendo apps/api/app.py?</p>
-        <button type="button" className="button small" onClick={loadModels}>
+      <div className={`${noticeClass} border-danger-border bg-danger-soft text-destructive`} role="alert">
+        <CircleAlertIcon className="mt-px size-[18px] shrink-0" />
+        <p className="flex-1 self-center">No se pudo contactar con la API. ¿Está corriendo apps/api/app.py?</p>
+        <Button variant="outline" size="sm" className={noticeButton} onClick={loadModels}>
           Reintentar
-        </button>
+        </Button>
       </div>
     ) : mode === "chat" && model?.stage === "base" && !loadingConversation ? (
-      <div className="notice">
-        <Icon name="alert" size={18} />
-        <p>
+      <div className={`${noticeClass} border-warn-border bg-warn-soft text-warn-foreground`}>
+        <TriangleAlertIcon className="mt-px size-[18px] shrink-0" />
+        <p className="flex-1 self-center">
           <b>{model.name}</b> es un modelo base: solo sabe continuar texto. El formato de chat lo aprenderá en la
           fase 5; hasta entonces sus respuestas no tendrán sentido.
         </p>
-        <button type="button" className="button small" onClick={() => changeMode("complete")}>
+        <Button variant="outline" size="sm" className={noticeButton} onClick={() => changeMode("complete")}>
           Usar Completar
-        </button>
+        </Button>
       </div>
     ) : null;
 
   return (
-    <div className="app">
+    <TooltipProvider>
+    <div className="flex h-dvh overflow-hidden">
       <Sidebar
+        isPhone={isPhone}
         open={sidebarOpen}
-        hidden={isPhone && !sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        onOpenChange={setSidebarOpen}
         conversations={conversations}
         currentId={currentId}
         onSelect={selectConversation}
@@ -383,8 +391,7 @@ export default function App() {
           setSettingsOpen(true);
         }}
       />
-      {/* With the drawer open on a phone, the page behind it is inert: no focus, no clicks. */}
-      <main className="main" inert={isPhone && sidebarOpen}>
+      <main className="relative flex min-w-0 flex-1 flex-col">
         <Header
           models={models}
           model={model}
@@ -427,7 +434,8 @@ export default function App() {
         onChange={setSettings}
         maxTokensLimit={model?.max_new_tokens ?? 512}
       />
-      <Toasts toasts={toasts} onDismiss={dismiss} />
+      <Toaster position="bottom-center" />
     </div>
+    </TooltipProvider>
   );
 }

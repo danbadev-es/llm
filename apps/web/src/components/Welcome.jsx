@@ -1,3 +1,5 @@
+import { BrandMark } from "./Sidebar.jsx";
+
 // The empty state of a new conversation. The suggestions stay in Spanish on purpose:
 // they are prompts for the model, which only knows Spanish.
 const CONTENT = {
@@ -16,14 +18,19 @@ const CONTENT = {
 export default function Welcome({ mode, disabled, onSuggestion }) {
   const { title, subtitle, suggestions } = CONTENT[mode];
   return (
-    <div className="welcome">
-      <span className="welcome-mark" aria-hidden="true">L</span>
-      <h2>{title}</h2>
-      <p>{subtitle}</p>
-      <ul className="suggestions" aria-label="Sugerencias">
+    <div className="flex animate-fade-up flex-col items-center pt-6 text-center md:pt-[12vh]">
+      <BrandMark className="size-11 rounded-xl text-xl" />
+      <h2 className="mt-5 text-[22px] font-semibold tracking-tight md:text-[28px]">{title}</h2>
+      <p className="mt-2 max-w-md text-muted-foreground">{subtitle}</p>
+      <ul className="mt-6 grid w-full max-w-xl grid-cols-1 gap-2 min-[421px]:grid-cols-2 md:mt-10" aria-label="Sugerencias">
         {suggestions.map((text) => (
           <li key={text}>
-            <button type="button" disabled={disabled} onClick={() => onSuggestion(text)}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onSuggestion(text)}
+              className="min-h-11 w-full rounded-xl border bg-background px-4 py-2.5 text-left text-sm text-secondary-text transition-colors outline-none hover:border-input hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
               {text}
             </button>
           </li>

@@ -1,9 +1,21 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const RADIUS = 8;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const HOVER_CLOSE_MS = 150; // lets the pointer travel from the ring to the card without closing it
 const number = (n) => n.toLocaleString("es-ES");
 const percent = (part, whole) => Math.round((100 * part) / whole);
+
+const RING = { ok: "stroke-muted-foreground", warn: "stroke-warn", high: "stroke-destructive", full: "stroke-destructive" };
+const SWATCH = {
+  system: "bg-ctx-system",
+  history: "bg-ctx-history",
+  draft: "bg-ctx-draft",
+  reserved: "bg-ctx-reserved",
+  free: "bg-transparent",
+};
 
 // What happens when the context is full, in the words of this request.
 function note(usage, mode) {
@@ -21,24 +33,21 @@ function note(usage, mode) {
 }
 
 // The context ring in the composer, like Claude's: how full the model's context window will be
-// when this message is sent. Hover, focus or tap shows the breakdown.
+// when this message is sent. Hovering shows the breakdown; a click or tap keeps it open.
 export default function ContextMeter({ usage, mode }) {
-  const [pinned, setPinned] = useState(false); // opened by a click or tap, closed by another
-  const ref = useRef(null);
-  const popoverId = useId();
-
-  useEffect(() => {
-    if (!pinned) return undefined;
-    const close = (e) => {
-      if (!ref.current?.contains(e.target) || e.key === "Escape") setPinned(false);
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [pinned]);
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef(0);
+  const hover = {
+    onPointerEnter: (e) => {
+      if (e.pointerType !== "mouse") return; // touch: the tap (onClick) toggles it
+      clearTimeout(closeTimer.current);
+      setOpen(true);
+    },
+    onPointerLeave: (e) => {
+      if (e.pointerType !== "mouse") return;
+      closeTimer.current = setTimeout(() => setOpen(false), HOVER_CLOSE_MS);
+    },
+  };
 
   if (!usage) return null;
   const { context, reserved, used, free } = usage;
@@ -56,52 +65,66 @@ export default function ContextMeter({ usage, mode }) {
   rows.push({ key: "reserved", label: "Reservado para la respuesta", value: reserved }, { key: "free", label: "Libre", value: free });
 
   return (
-    <div className={`context-meter ${level}${pinned ? " pinned" : ""}`} ref={ref}>
-      <button
-        type="button"
-        className="context-ring"
-        aria-label={`Contexto: ${percent(filled, context)} % usado. Ver desglose`}
-        aria-expanded={pinned}
-        aria-controls={popoverId}
-        onClick={() => setPinned((open) => !open)}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild {...hover}>
+        <button
+          type="button"
+          className="mb-[3px] grid size-8 shrink-0 place-items-center rounded-full transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 data-[state=open]:bg-accent"
+          aria-label={`Contexto: ${percent(filled, context)} % usado. Ver desglose`}
+        >
+          {/* Rotated so the arc starts at 12 o'clock and fills clockwise. */}
+          <svg width="22" height="22" viewBox="0 0 22 22" className="-rotate-90" aria-hidden="true">
+            <circle cx="11" cy="11" r={RADIUS} fill="none" strokeWidth="2.5" className="stroke-border" />
+            <circle
+              cx="11"
+              cy="11"
+              r={RADIUS}
+              fill="none"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={CIRCUMFERENCE}
+              strokeDashoffset={CIRCUMFERENCE * (1 - Math.min(1, share))}
+              className={cn("transition-[stroke-dashoffset,stroke] duration-300 ease-(--ease-out)", RING[level])}
+            />
+          </svg>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        alignOffset={-46}
+        sideOffset={12}
+        className="w-[284px] px-4 pt-3 pb-4 text-[13px]"
+        onOpenAutoFocus={(e) => e.preventDefault()} // the focus stays in the composer
+        {...hover}
       >
-        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-          <circle className="ring-track" cx="11" cy="11" r={RADIUS} />
-          <circle
-            className="ring-fill"
-            cx="11"
-            cy="11"
-            r={RADIUS}
-            strokeDasharray={CIRCUMFERENCE}
-            strokeDashoffset={CIRCUMFERENCE * (1 - Math.min(1, share))}
-          />
-        </svg>
-      </button>
-      <div className="context-popover" id={popoverId} role="tooltip">
-        <p className="context-title">
+        <p className="flex justify-between font-semibold">
           Contexto <span>{percent(filled, context)} %</span>
         </p>
-        <p className="context-subtitle">
+        <p className="mt-0.5 mb-3 text-muted-foreground">
           {number(filled)} de {number(context)} tokens
         </p>
-        <div className="context-bar" aria-hidden="true">
+        <div className="mb-3 flex h-2 gap-0.5 overflow-hidden rounded-full bg-accent" aria-hidden="true">
           {rows.map((row) =>
-            row.value > 0 ? <span key={row.key} className={`segment ctx-${row.key}`} style={{ flexGrow: row.value }} /> : null,
+            row.value > 0 ? <span key={row.key} className={cn("min-w-[3px] basis-0", SWATCH[row.key])} style={{ flexGrow: row.value }} /> : null,
           )}
         </div>
-        <ul className="context-rows">
+        <ul className="grid gap-1.5">
           {rows.map((row) => (
-            <li key={row.key}>
-              <span className={`swatch ctx-${row.key}`} aria-hidden="true" />
-              <span className="label">{row.label}</span>
-              <span className="value">{number(row.value)}</span>
+            <li key={row.key} className="flex items-center gap-2 text-secondary-text">
+              <span
+                className={cn("size-2.5 shrink-0 rounded-[3px]", SWATCH[row.key], row.key === "free" && "ring-1 ring-input ring-inset")}
+                aria-hidden="true"
+              />
+              <span className="flex-1">{row.label}</span>
+              <span className="text-foreground tabular-nums">{number(row.value)}</span>
             </li>
           ))}
         </ul>
-        <p className="context-note">
+        <p className={cn("mt-3 border-t pt-3 leading-normal text-muted-foreground", level === "full" && "text-destructive")}>
           {note(usage, mode)}
         </p>
-      </div>
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }

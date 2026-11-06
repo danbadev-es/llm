@@ -22,6 +22,11 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
   - `tests/test_export.py`.
 
 ### Cambiado
+- **La web usa Tailwind CSS v4 y shadcn/ui**:
+  - el tema son las variables de shadcn con la paleta de Leon, en claro y oscuro;
+  - los menús, diálogos, selector de modelo, panel lateral del móvil, tooltips y avisos (Sonner) son componentes de shadcn sobre Radix, en lugar de los hechos a mano;
+  - iconos de `lucide-react`;
+  - se eliminan `styles.css` (1.500 líneas) y los componentes propios `Menu`, `Modal`, `Toasts` e `Icon`.
 - **Tokenizer v2**: mismo vocabulario de 16k, regla de pre-tokenización de Llama 3, idéntica a la de llama.cpp, para poder exportar Leon a GGUF (LM Studio y Ollama).
   - Cuesta un 1,8 % de compresión en Wikipedia.
   - Cada checkpoint guarda su versión de tokenizer.
