@@ -14,7 +14,7 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 1: GPT mínimo | ✅ | 1,627 bits/char · SDPA ×1,76 |
 | 2: tokenizer BPE | ✅ | 16.384 tokens · 4,19 bytes/token en Wikipedia |
 | 3: arquitectura moderna | ✅ | 1,175 bits/byte (32M, 31 min) · tamaño de Leon 0.1 fijado |
-| 4: preentrenamiento | ⏳ siguiente | 56M, contexto 1024, ~2B tokens, ~13–14 h |
+| 4: preentrenamiento | ⏳ listo para arrancar | 56M, contexto 1024, ~2B tokens, ~13–14 h · `control.py start / pause / resume / status` |
 | 5–7: SFT, agente, DPO | — | |
 
 ## Inicio rápido
@@ -35,6 +35,7 @@ python apps/api/app.py                            # chat en http://127.0.0.1:800
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Componentes, flujo de datos, formatos compartidos, decisiones de diseño y reglas de dependencias |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Entorno, flujo de trabajo, convenciones y cómo añadir una fase |
 | [`CHANGELOG.md`](CHANGELOG.md) | Hitos y resultados, fase a fase |
+| [`CLAUDE.md`](CLAUDE.md) | Instrucciones para sesiones de Claude Code: qué comando corresponde a "arranca", "pausa", "continúa"... |
 | `phases/N_*/README.md` | Cada fase: conceptos, ejecución, ejercicios y resultados medidos |
 | [`apps/README.md`](apps/README.md) | Chat local: API, web, modos y seguridad |
 
@@ -48,13 +49,15 @@ llm/
 │   ├── model.py        #   Leon: RoPE, RMSNorm, SwiGLU, GQA, KV cache (built in phase 3)
 │   ├── data.py         #   token files with np.memmap             (built in phase 3)
 │   ├── chat.py         #   chat template                          (phase 5 and apps/api)
-│   ├── training.py     #   LR schedule, bits/byte, atomic checkpoints with RNG state
+│   ├── training.py     #   LR schedule, eval, bits/byte, atomic checkpoints with RNG state
+│   ├── run.py          #   control files of a background run: pause flag, status, pid
 │   └── paths.py        #   where data/ and checkpoints/ live
 ├── phases/             # the course: one chapter per phase (scripts, README, walkthrough notebook)
 │   ├── 0_bigram/
 │   ├── 1_gpt/
 │   ├── 2_tokenizer/
-│   └── 3_modern/       # 4_pretrain/ … 7_dpo/ to come
+│   ├── 3_modern/
+│   └── 4_pretrain/     # control.py: start / pause / resume / status   (5_sft … 7_dpo to come)
 ├── apps/
 │   ├── api/            # Flask: model serving with streaming
 │   └── web/            # React + Vite: ChatGPT-style interface
@@ -114,7 +117,7 @@ Verificación:
 
 ```powershell
 python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-pytest                        # 29 tests: tokenizer, model, data, training, chat template, API, architecture
+pytest                        # 33 tests: tokenizer, model, data, training, run control, chat template, API, architecture
 ```
 
 Calidad del código (antes de cada commit):

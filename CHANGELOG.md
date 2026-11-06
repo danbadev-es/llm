@@ -5,6 +5,11 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Añadido
+- **Fase 4, lista para arrancar**: `phases/4_pretrain/control.py` con `prepare`, `start`, `pause`, `resume` y `status`.
+  - El entrenamiento corre como proceso independiente, con pausa limpia y `status.json`.
+  - Una ejecución pausada y reanudada da **pesos idénticos** a una sin interrupciones.
+- `leon/run.py`: ficheros de control de entrenamientos en segundo plano. `estimate_loss` pasa a `leon/training.py`.
+- `CLAUDE.md`: qué comando corresponde a "arranca", "pausa", "continúa" y "¿cómo va?".
 - `ARCHITECTURE.md`, `CONTRIBUTING.md`, este `CHANGELOG.md` y `.editorconfig`.
 - `tests/test_architecture.py`: comprueba las reglas de dependencias entre `leon/`, `phases/` y `apps/`.
 

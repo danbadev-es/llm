@@ -1,0 +1,80 @@
+# Fase 4: preentrenamiento de Leon 0.1
+
+## Objetivo
+
+Entrenar el modelo base de Leon 0.1 con toda la Wikipedia en español: **56M de parámetros, contexto 1024 y ~2B de tokens**. Son unas 13–14 h de GPU, repartidas en varias sesiones que se pueden pausar y continuar en cualquier momento.
+
+El resultado (`checkpoints/4_pretrain/leon_0.1/best.pt`) es un modelo que escribe español con fluidez pero aún no conversa. La conversación llega en la fase 5.
+
+## Archivos
+
+| Archivo | Contenido |
+|---|---|
+| `control.py` | `prepare`, `start`, `pause`, `resume`, `status`: maneja el entrenamiento como proceso en segundo plano |
+| `train.py` | El bucle de entrenamiento, con la configuración de Leon 0.1 por defecto, pausa limpia y `status.json` |
+| [`leon/run.py`](../../leon/run.py) | Ficheros de control de un entrenamiento: PID, petición de pausa, estado, log y "no suspender Windows" |
+
+El modelo, los datos y los checkpoints son los de las fases 2 y 3 (`leon.model`, `leon.data`, `leon.training`).
+
+## Conceptos nuevos
+
+- **Escala**: de 131M de tokens en la fase 3 a 2.000M. Con ~36 tokens por parámetro, Leon 0.1 se entrena más allá del óptimo de Chinchilla (~20). Cuesta más entrenarlo, pero el modelo resultante es mejor para su tamaño, y eso es lo que importa en un modelo que luego se usa mucho.
+- **Batch de 131.072 tokens por paso**: 32 micro-batches de 4×1024 acumulados. 15.259 pasos dan 2.0B de tokens.
+- **Schedule largo**: 500 pasos de warmup y decaimiento coseno de 1e-3 a 1e-4 hasta el paso 15.259. El schedule depende de `max_steps`, así que al reanudar se toma del checkpoint, nunca de la línea de comandos.
+- **Entrenamiento por sesiones**:
+  - **Proceso independiente**: el entrenamiento sigue aunque se cierre la terminal o el editor.
+  - **Pausa limpia**: el fichero `PAUSE` hace que termine el paso en curso, guarde y salga.
+  - **Reanudación exacta**: se restauran pesos, optimizador y generadores aleatorios, así que pausar y continuar da **exactamente** el mismo modelo que entrenar sin parar. Se comprobó con una ejecución de prueba comparando los pesos.
+- **Seguimiento**: `status.json` (paso, pérdida, tok/s, ETA) cada 10 pasos, y una muestra de texto con el prompt fijo en cada evaluación (cada 250 pasos, ~13 min), para ver cómo aprende a escribir.
+- **Sin suspensión**: mientras entrena, Windows no entra en suspensión por inactividad. Cerrar la tapa del portátil sí puede suspenderlo, según la configuración de energía.
+
+## Ejecución
+
+Desde la raíz del repo. Una vez, descarga y tokeniza toda la Wikipedia. Usa CPU y red, no GPU: ~3,5 GB de descarga, ~13 GB en disco y unos 20–40 min.
+
+```powershell
+python phases/4_pretrain/control.py prepare
+```
+
+Después, por sesiones:
+
+```powershell
+python phases/4_pretrain/control.py start     # la primera vez
+python phases/4_pretrain/control.py status    # ¿cómo va?
+python phases/4_pretrain/control.py pause     # guarda y para (unos segundos)
+python phases/4_pretrain/control.py resume    # continúa donde se quedó
+```
+
+En una sesión con Claude Code basta con decir **"prepara los datos de la fase 4"**, **"arranca"**, **"¿cómo va?"**, **"pausa"** o **"continúa"** (ver [`CLAUDE.md`](../../CLAUDE.md)).
+
+Otros usos:
+
+- `start --fresh` borra el progreso y empieza de cero.
+- `--run nombre` mantiene varias ejecuciones separadas.
+- Lo que va después de `--` se pasa a `train.py`. Por ejemplo, una prueba rápida en CPU: `control.py start --run prueba -- --dataset quijote --device cpu --no-compile --n-layer 1 --n-embd 32 --n-head 2 --n-kv-head 1 --max-steps 300`.
+
+## Qué observar
+
+1. **La loss al principio**: baja muy rápido en los primeros cientos de pasos (aprende frecuencias y palabras comunes) y después mucho más despacio. La mayor parte del entrenamiento se gasta en la "cola" lenta.
+2. **Las muestras**: cada 250 pasos, del ruido inicial a palabras sueltas, frases gramaticales y párrafos con estilo de Wikipedia.
+3. **Wikipedia frente al Quijote** en bits/byte: cuánto generaliza a un español distinto del que ve.
+4. **tok/s en sesiones largas**: el *thermal throttling* del portátil (`status` muestra la temperatura).
+
+## Ejercicios
+
+- [ ] Comparar las muestras de los pasos 250, 1.000, 5.000 y 15.000. ¿En qué orden aprende ortografía, gramática y coherencia?
+- [ ] Dibujar la curva de val loss desde `train.log` y ajustarle una ley de potencias `L(t) = a + b·t^(-c)`. ¿Cuánto mejoraría con el doble de tokens?
+- [ ] Comparar `best.pt` con el modelo de 32M de la fase 3 en el chat (`apps/`), con los mismos prompts.
+
+## Resultados
+
+*Pendiente de ejecutar.*
+
+| Métrica | Valor |
+|---|---|
+| Tokens de entrenamiento (Wikipedia completa) | |
+| Mejor val loss / bits/byte (Wikipedia) | |
+| Bits/byte en el Quijote (fuera de dominio) | |
+| Throughput sostenido / horas totales de GPU | |
+| Sesiones | |
+| Muestra con el prompt fijo | |

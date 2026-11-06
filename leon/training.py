@@ -1,6 +1,7 @@
 """Training utilities shared by every training script from phase 3 on.
 
 lr_at              warmup + cosine learning-rate schedule
+estimate_loss      average loss over random batches of each split
 bits_per_byte      loss per token -> bits per byte of text (comparable across tokenizers)
 save_checkpoint    atomic save of model, optimizer, RNG state and run settings
 load_checkpoint    the inverse, restoring the RNG so a resumed run continues the same data stream
@@ -8,11 +9,14 @@ load_checkpoint    the inverse, restoring the RNG so a resumed run continues the
 
 import math
 import os
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import asdict
 from pathlib import Path
 
 import torch
 
+from leon.data import TokenFile
 from leon.model import Leon
 
 
@@ -22,6 +26,31 @@ def lr_at(step: int, lr: float, min_lr: float, warmup_steps: int, max_steps: int
         return lr * (step + 1) / warmup_steps
     progress = min(1.0, (step - warmup_steps) / max(1, max_steps - warmup_steps))
     return min_lr + 0.5 * (1.0 + math.cos(math.pi * progress)) * (lr - min_lr)
+
+
+@torch.no_grad()
+def estimate_loss(
+    model: Leon,
+    splits: dict[str, TokenFile],
+    batch_size: int,
+    block_size: int,
+    eval_iters: int,
+    device: str,
+    autocast: Callable[[], AbstractContextManager],
+) -> dict[str, float]:
+    """Mean loss over eval_iters random batches of every split (dropout off during the estimate)."""
+    model.eval()
+    result = {}
+    for name, split in splits.items():
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            x, y = split.get_batch(batch_size, block_size, device)
+            with autocast():
+                _, loss = model(x, y)
+            losses[k] = loss.item()
+        result[name] = losses.mean().item()
+    model.train()
+    return result
 
 
 def bits_per_byte(loss: float, bytes_per_token: float) -> float:

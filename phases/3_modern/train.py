@@ -7,10 +7,10 @@ from dataclasses import asdict
 
 import torch
 
-from leon.data import DATASETS, TokenFile, load_splits, load_tokenizer
+from leon.data import DATASETS, load_splits, load_tokenizer
 from leon.model import Leon, LeonConfig
 from leon.paths import CHECKPOINT_DIR
-from leon.training import bits_per_byte, load_checkpoint, lr_at, save_checkpoint
+from leon.training import bits_per_byte, estimate_loss, load_checkpoint, lr_at, save_checkpoint
 
 CHECKPOINT_ROOT = CHECKPOINT_DIR / "3_modern"
 FIXED_PROMPT = "En un lugar de la Mancha"
@@ -46,24 +46,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
-
-
-@torch.no_grad()
-def estimate_loss(
-    model: Leon, splits: dict[str, TokenFile], block_size: int, args: argparse.Namespace, autocast
-) -> dict[str, float]:
-    model.eval()
-    result = {}
-    for name, split in splits.items():
-        losses = torch.zeros(args.eval_iters)
-        for k in range(args.eval_iters):
-            x, y = split.get_batch(args.batch_size, block_size, args.device)
-            with autocast():
-                _, loss = model(x, y)
-            losses[k] = loss.item()
-        result[name] = losses.mean().item()
-    model.train()
-    return result
 
 
 def main() -> None:
@@ -138,7 +120,9 @@ def main() -> None:
         already_evaluated = args.resume and step == start_step
         if (step % args.eval_interval == 0 or step == args.max_steps) and not already_evaluated:
             # The uncompiled model: same weights, and no recompilation for eval mode.
-            losses = estimate_loss(model, eval_splits, config.block_size, args, autocast)
+            losses = estimate_loss(
+                model, eval_splits, args.batch_size, config.block_size, args.eval_iters, device, autocast
+            )
             throughput = steps_timed * tokens_per_step / train_time if train_time else 0.0
             line = (
                 f"step {step:5d} | train {losses['train']:.4f} | val {losses['val']:.4f} "
