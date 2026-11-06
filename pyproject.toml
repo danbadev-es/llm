@@ -17,7 +17,8 @@ compile = ['triton-windows; sys_platform == "win32"']  # torch.compile on Window
 api = ["flask"]                                       # apps/api
 notebooks = ["matplotlib", "ipykernel"]               # walkthrough.ipynb
 dev = ["pytest", "ruff", "anthropic"]                 # anthropic: the SDK in tests/test_anthropic_api.py
-all = ["leon[data,compile,api,notebooks,dev]"]
+export = ["gguf", "jinja2"]                           # leon.export: GGUF for llama.cpp, LM Studio, Ollama
+all = ["leon[data,compile,api,notebooks,export,dev]"]
 
 [tool.setuptools]
 packages = ["leon"]

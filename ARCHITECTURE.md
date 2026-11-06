@@ -60,6 +60,7 @@ flowchart TD
 | `data.py` | `TokenFile` (`.bin` con `np.memmap`, `get_batch`), `load_splits`, `load_tokenizer` | `paths`, `tokenizer` |
 | `training.py` | `lr_at`, `estimate_loss`, `bits_per_byte`, `save_checkpoint`/`load_checkpoint` | `model`, `data` |
 | `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake` | — |
+| `export.py` | GGUF para llama.cpp, LM Studio y Ollama; `--verify` lo compara con los binarios de llama.cpp | `model`, `data`; extra opcional `gguf`, `jinja2` |
 | `chat.py` | `encode_chat`: el chat template | `tokenizer` |
 
 ### El modelo
@@ -131,6 +132,19 @@ Se escriben de forma atómica: primero un `.tmp` y luego `os.replace`.
 
 Lo define `leon.chat.encode_chat`, y es la única implementación: la fase 5 lo usará para entrenar y `apps/api` para la inferencia.
 
+### GGUF (`leon/export.py`)
+
+| Leon | GGUF (arquitectura `llama` de llama.cpp) |
+|---|---|
+| `token_embedding` | `token_embd` (también la capa de salida: no se escribe `output.weight`) |
+| `blocks.i.attn_norm`, `attn.{q,k,v}_proj`, `attn.out_proj` | `blk.i.attn_norm`, `attn_{q,k,v}`, `attn_output` |
+| `blocks.i.mlp_norm`, `mlp.{gate,up,down}_proj` | `blk.i.ffn_norm`, `ffn_{gate,up,down}` |
+| `final_norm` | `output_norm` |
+
+- **Sin permutar pesos**: el RoPE de Leon rota pares de canales contiguos, que es el modo "normal" de llama.cpp. Los Llama de Hugging Face rotan las dos mitades de la cabeza, y por eso su conversor permuta q y k.
+- **Tokenizer**: modelo `gpt2` (BPE a nivel de byte, con el mapa de bytes de GPT-2) y regla `llama-bpe`, que es la del v2. Los tokens especiales van como tokens de control.
+- **Sin token de inicio**: `add_bos_token = false`, porque Leon no usa BOS.
+
 ### API HTTP
 
 Compatible con la API de Claude (`apps/api/anthropic_api.py`), para que el SDK oficial `anthropic` hable con Leon cambiando solo la URL base: `POST /v1/messages` (modo chat, con o sin streaming), `POST /v1/messages/count_tokens`, `POST /v1/complete` (modo completar, la antigua Text Completions) y `GET /v1/models`. Lo propio de Leon va en una clave `leon` (estadísticas de generación, metadatos del checkpoint) y en la cabecera `X-Leon-Conversation` (guardar en el historial). Además, el CRUD de `/api/conversations`. La web usa esta misma API (`apps/web/src/api.js` traduce entre ella y sus componentes). Ver [`apps/README.md`](apps/README.md).
@@ -157,6 +171,7 @@ SQLite en `data/chat.db` (`apps/api/store.py`):
 | Tokens especiales solo por id | `encode` ignora los especiales por defecto y el chat template los inserta por id. Así el texto de un usuario o de una web no puede inyectar turnos ni llamadas a herramientas |
 | API de un modelo y una petición a la vez | Herramienta local de un solo usuario: un `threading.Lock` basta y mantiene la VRAM bajo control |
 | Historial en SQLite, guardado por el servidor | Biblioteca estándar y un solo archivo. Guarda el servidor, no el navegador, así que una respuesta detenida o fallida queda registrada igual, y la base de datos es la única fuente de verdad |
+| Exportar a GGUF propio (`leon.export`) en vez de pasar por Hugging Face | Leon ya es un Llama con el RoPE de llama.cpp: los pesos se copian tal cual, sin permutar. Se verifica contra los binarios de llama.cpp (tokens, chat template, perplejidad) |
 | API solo local | Escucha en `127.0.0.1` y valida la cabecera `Host`, contra el *DNS rebinding* |
 | Web separada (React) de la API (Flask) | Se desarrollan por separado (`npm run dev` con proxy). En uso normal, Flask sirve la web compilada desde el mismo puerto |
 

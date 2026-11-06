@@ -39,6 +39,36 @@ python apps/api/app.py                            # chat en http://127.0.0.1:800
 | `phases/N_*/README.md` | Cada fase: conceptos, ejecución, ejercicios y resultados medidos |
 | [`apps/README.md`](apps/README.md) | Chat local: API, web, modos y seguridad |
 
+## Usar Leon en LM Studio y Ollama
+
+`leon.export` convierte un checkpoint a **GGUF**, el formato de llama.cpp, que es el motor de LM Studio y Ollama:
+
+```powershell
+pip install -e ".[export]"
+python -m leon.export checkpoints/5_sft/leon_0.1_chat/best.pt leon-0.1-chat-q8_0.gguf --dtype q8_0
+# opcional: comprobarlo con los binarios de llama.cpp (https://github.com/ggml-org/llama.cpp/releases)
+python -m leon.export checkpoints/5_sft/leon_0.1_chat/best.pt leon-0.1-chat-q8_0.gguf --dtype q8_0 --verify C:\ruta\a\llama.cpp
+```
+
+- **Qué se exporta**: la arquitectura `llama` de llama.cpp, el tokenizer v2 con su regla `llama-bpe` y, en los modelos de chat, el chat template en Jinja con `<|end|>` como fin de turno.
+- **Tamaño**: ~57 MB en Q8_0 y ~107 MB en F16.
+- **Verificación** (`--verify`), medida con un checkpoint de la fase 4:
+  - la tokenización de llama.cpp es idéntica en 210/210 textos (Wikipedia, el Quijote y casos límite);
+  - el chat template produce los mismos tokens que `leon.chat`;
+  - la perplejidad difiere un 0,001 % en F32 y un 0,066 % en Q8_0;
+  - la generación *greedy* es idéntica token a token.
+- **LM Studio**: copia el `.gguf` a su carpeta de modelos. Lee el chat template del propio archivo.
+- **Ollama**: necesita un `Modelfile` con la plantilla en su formato. Sin probar todavía:
+
+  ```
+  FROM ./leon-0.1-chat-q8_0.gguf
+  TEMPLATE """{{- range .Messages }}<|{{ .Role }}|>{{ .Content }}<|end|>{{ end }}<|assistant|>"""
+  PARAMETER stop "<|end|>"
+  PARAMETER stop "<|user|>"
+  ```
+
+  y después `ollama create leon -f Modelfile`.
+
 ## Estructura del repositorio
 
 ```

@@ -4,6 +4,12 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 
 ## Sin publicar
 
+### Añadido
+- **Exportación a GGUF** (`leon/export.py`, `python -m leon.export`) para llama.cpp, LM Studio y Ollama, en F32, F16 o Q8_0.
+  - `--verify` lo compara con los binarios oficiales de llama.cpp.
+  - Con un checkpoint de la fase 4: tokenización idéntica en 210/210 textos, chat template idéntico, perplejidad a un 0,001 % (F32) y un 0,066 % (Q8_0), y generación *greedy* idéntica.
+  - `tests/test_export.py`.
+
 ### Cambiado
 - **Tokenizer v2**: mismo vocabulario de 16k, regla de pre-tokenización de Llama 3, idéntica a la de llama.cpp, para poder exportar Leon a GGUF (LM Studio y Ollama).
   - Cuesta un 1,8 % de compresión en Wikipedia.

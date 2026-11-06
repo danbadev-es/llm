@@ -5,6 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LEON_ALLOWED = {"leon", "numpy", "regex", "torch"}  # plus the standard library
+# Optional extras, allowed only in the module that needs them (no other leon module imports it).
+EXTRA_ALLOWED = {"export.py": {"gguf", "jinja2"}}
 
 
 def imported_modules(path: Path) -> set[str]:
@@ -24,7 +26,8 @@ def test_leon_depends_only_on_stdlib_numpy_regex_and_torch() -> None:
     import sys
 
     for path in (ROOT / "leon").glob("*.py"):
-        foreign = imported_modules(path) - LEON_ALLOWED - sys.stdlib_module_names
+        allowed = LEON_ALLOWED | EXTRA_ALLOWED.get(path.name, set())
+        foreign = imported_modules(path) - allowed - sys.stdlib_module_names
         assert not foreign, f"{path.name} imports {foreign}"
 
 
