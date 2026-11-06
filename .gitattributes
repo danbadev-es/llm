@@ -1,0 +1,16 @@
+# Store text with LF line endings in the repository; Git converts on checkout as configured.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Notebooks are JSON: diff them as text, never merge them line by line.
+*.ipynb text eol=lf merge=binary
+
+# Binary files that might appear (they are ignored, but never let Git touch their bytes).
+*.png binary
+*.jpg binary
+*.pt binary
+*.bin binary
+*.parquet binary

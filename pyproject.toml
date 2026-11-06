@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leon"
+version = "0.1.0"
+description = "Leon 0.1: a Spanish conversational language model built from scratch"
+requires-python = ">=3.11"
+# PyTorch is installed separately (see README): the RTX 50 series (Blackwell) needs a
+# build compiled against CUDA 12.8+, which comes from PyTorch's own package index.
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+data = ["pyarrow"]                                    # phase 2: Wikipedia parquet shards
+compile = ['triton-windows; sys_platform == "win32"']  # torch.compile on Windows
+api = ["flask"]                                       # apps/api
+notebooks = ["matplotlib", "ipykernel"]               # walkthrough.ipynb
+dev = ["pytest", "ruff"]
+all = ["leon[data,compile,api,notebooks,dev]"]
+
+[tool.setuptools]
+packages = ["leon"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle errors, import order, bugbear, pyupgrade
+select = ["F", "E", "I", "B", "UP"]
+ignore = [
+    "E731",  # small lambdas are fine
+    "B905",  # zip(word, word[1:]) pairs adjacent items: unequal lengths are the point
+]
