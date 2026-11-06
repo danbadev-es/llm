@@ -1,0 +1,52 @@
+# Changelog
+
+Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas en una RTX 5060 Laptop (8 GB) y están detalladas en el README de cada fase.
+
+## Sin publicar
+
+### Añadido
+- `ARCHITECTURE.md`, `CONTRIBUTING.md`, este `CHANGELOG.md` y `.editorconfig`.
+- `tests/test_architecture.py`: comprueba las reglas de dependencias entre `leon/`, `phases/` y `apps/`.
+
+## Fase 3: arquitectura moderna (2026-11-06)
+
+### Añadido
+- `leon/model.py`: RMSNorm, RoPE, SwiGLU, GQA, KV cache y generación en streaming.
+- `leon/data.py`: lectura de los `.bin` con `np.memmap`. `leon/training.py`: checkpoints atómicos con estado del RNG.
+- `phases/3_modern/benchmark.py`: throughput de los tamaños candidatos.
+- `apps/api` (Flask, Server-Sent Events) y `apps/web` (React + Vite): chat local con modos *completar* y *chat*.
+
+### Resultados
+- Modelo de 32M en Wikipedia: **1,175 bits/byte** en 31 minutos, a 70.620 tok/s sostenidos.
+- **Tamaño de Leon 0.1 decidido**: 56M (d = 640, 10 capas, GQA 10/5, contexto 1024), ~2B tokens. Entrena a 41.946 tok/s, ~13–14 h.
+- `torch.compile` da ×1,5–1,6. Los micro-batches de más de 4.096 tokens desbordan la VRAM por los logits de un vocabulario de 16k.
+
+### Corregido (revisión de código)
+- `--resume` repetía los batches del principio y podía cambiar el contexto sin avisar.
+- El último token de cada fichero nunca se usaba como objetivo en `get_batch`.
+- La generación con KV cache se quedaba un token corta.
+- API:
+  - validación completa antes de empezar el streaming;
+  - recorte de contexto por turnos completos;
+  - protección contra *DNS rebinding* y *path traversal*.
+
+## Fase 2: tokenizer BPE (2026-11-06)
+
+### Añadido
+- `leon/tokenizer.py`: BPE a nivel de byte, entrenamiento incremental y 16 tokens especiales reservados (chat y herramientas).
+- Pipeline de datos: Wikipedia en español (shard 0) en JSONL, y tokenización en paralelo a `.bin` uint16.
+
+### Resultados
+- 16.384 tokens entrenados en 30 s. Comprimen **4,19 bytes/token** en Wikipedia y 3,50 en el Quijote.
+- Shard 0: 282M tokens. Los 13 shards darían ~1,4B.
+
+## Fase 1: GPT mínimo (2026-11-06)
+
+### Resultados
+- 10,78M de parámetros, **1,627 bits/char** (el bigrama daba 3,327).
+- SDPA frente a atención manual: ×1,76 de velocidad (143k frente a 81k tok/s) y un 38 % menos de VRAM.
+
+## Fase 0: bigrama
+
+### Resultados
+- Bigrama: val 2,3047 por conteo y 2,3061 con gradiente, **3,327 bits/char**. 1,39M tok/s en CPU.

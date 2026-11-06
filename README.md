@@ -2,9 +2,41 @@
 
 Proyecto educativo: construir desde cero **Leon 0.1**, un modelo de lenguaje conversacional en español que, al final, tendrá capacidades agénticas (tool calling).
 
-Conceptos, objetivo y criterios de éxito: [`docs/fundamentos.md`](docs/fundamentos.md).
+Todo está implementado a mano: tokenizer, transformer, entrenamiento y chat, sin Hugging Face Transformers. Se entrena en local en una RTX 5060 Laptop (8 GB).
 
 Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y documenta en su `README.md` qué se aprendió y qué métricas obtuvo. Cada fase incluye además un `walkthrough.ipynb` que reconstruye sus piezas paso a paso con ejemplos diminutos.
+
+## Estado
+
+| Fase | Estado | Resultado clave |
+|---|---|---|
+| 0: bigrama | ✅ | 3,327 bits/char |
+| 1: GPT mínimo | ✅ | 1,627 bits/char · SDPA ×1,76 |
+| 2: tokenizer BPE | ✅ | 16.384 tokens · 4,19 bytes/token en Wikipedia |
+| 3: arquitectura moderna | ✅ | 1,175 bits/byte (32M, 31 min) · tamaño de Leon 0.1 fijado |
+| 4: preentrenamiento | ⏳ siguiente | 56M, contexto 1024, ~2B tokens, ~13–14 h |
+| 5–7: SFT, agente, DPO | — | |
+
+## Inicio rápido
+
+Con el entorno instalado (ver [Entorno](#entorno-windows)) y los datos y checkpoints generados por las fases:
+
+```powershell
+pytest                                            # ¿todo en orden?
+python phases/3_modern/sample.py --prompt "La ciudad de Madrid"
+python apps/api/app.py                            # chat en http://127.0.0.1:8000
+```
+
+## Documentación
+
+| Documento | Para qué |
+|---|---|
+| [`docs/fundamentos.md`](docs/fundamentos.md) | Conceptos desde cero, objetivo y criterios de éxito de Leon 0.1 |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Componentes, flujo de datos, formatos compartidos, decisiones de diseño y reglas de dependencias |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Entorno, flujo de trabajo, convenciones y cómo añadir una fase |
+| [`CHANGELOG.md`](CHANGELOG.md) | Hitos y resultados, fase a fase |
+| `phases/N_*/README.md` | Cada fase: conceptos, ejecución, ejercicios y resultados medidos |
+| [`apps/README.md`](apps/README.md) | Chat local: API, web, modos y seguridad |
 
 ## Estructura del repositorio
 
@@ -82,7 +114,7 @@ Verificación:
 
 ```powershell
 python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-pytest                        # 26 tests: tokenizer, model, data, training, chat template, API
+pytest                        # 29 tests: tokenizer, model, data, training, chat template, API, architecture
 ```
 
 Calidad del código (antes de cada commit):
