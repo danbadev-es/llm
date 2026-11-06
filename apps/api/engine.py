@@ -85,6 +85,7 @@ class Engine:
         self.tokenizer = load_tokenizer()
         self.lock = threading.Lock()
         self.name: str | None = None
+        self.version: float | None = None  # modification time of the loaded checkpoint file
         self.model: Leon | None = None
         self.use_bf16 = device.startswith("cuda") and torch.cuda.is_bf16_supported()
 
@@ -107,11 +108,18 @@ class Engine:
         return models
 
     def _load(self, name: str) -> Leon:
-        if name != self.name:
-            ckpt = torch.load(find_checkpoints()[name], map_location=self.device, weights_only=True)
+        """Load a checkpoint, or reuse the one in memory if neither the name nor the file changed.
+
+        A run that is still training rewrites its best.pt: the newer weights are picked up
+        on the next request, so the chat can follow a model while it learns.
+        """
+        path = find_checkpoints()[name]
+        version = path.stat().st_mtime
+        if name != self.name or version != self.version:
+            ckpt = torch.load(path, map_location=self.device, weights_only=True)
             model = Leon(LeonConfig(**ckpt["config"])).to(self.device).eval()
             model.load_state_dict(ckpt["model"])
-            self.model, self.name = model, name  # the previous model is freed
+            self.model, self.name, self.version = model, name, version  # the previous model is freed
             if self.device.startswith("cuda"):
                 torch.cuda.empty_cache()
         return self.model
