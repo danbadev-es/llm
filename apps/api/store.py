@@ -13,6 +13,7 @@ import json
 import sqlite3
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
@@ -114,6 +115,18 @@ class ConversationStore:
             cursor = db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
         return cursor.rowcount == 1
 
+    def truncate(self, conversation_id: str, keep: int) -> bool:
+        """Keep only the first `keep` messages of a conversation (False if it does not exist)."""
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)).fetchone() is None:
+                return False
+            db.execute(
+                "DELETE FROM messages WHERE conversation_id = ? AND id NOT IN "
+                "(SELECT id FROM messages WHERE conversation_id = ? ORDER BY id LIMIT ?)",
+                (conversation_id, conversation_id, keep),
+            )
+        return True
+
     def add_message(
         self,
         conversation_id: str,
@@ -136,3 +149,38 @@ class ConversationStore:
                 "UPDATE conversations SET updated_at = ?, model = COALESCE(?, model) WHERE id = ?",
                 (now, model, conversation_id),
             )
+
+    def record(self, conversation_id: str, params: dict, stream: Iterator[dict]) -> Iterator[dict]:
+        """Pass the events of Engine.stream() through, saving the exchange in a conversation.
+
+        In chat mode the last message (the user's) is saved first. The answer is saved once:
+        with the final stats, with the error if generation fails (the error is re-raised for
+        the endpoint to report), or with what was written so far and {"stopped": "user"} if the
+        client disconnects (closing this generator also closes the engine's, freeing the model).
+        """
+        text, saved = [], False
+
+        def save(**fields) -> None:
+            nonlocal saved
+            if not saved:
+                prompt = params["prompt"] if params["mode"] == "complete" else None
+                self.add_message(
+                    conversation_id, "assistant", "".join(text), prompt=prompt, model=params["model"], **fields
+                )
+                saved = True
+
+        if params["mode"] == "chat":
+            self.add_message(conversation_id, "user", params["messages"][-1]["content"], model=params["model"])
+        try:
+            for event in stream:
+                if "text" in event:
+                    text.append(event["text"])
+                elif event.get("done"):
+                    save(stats={k: v for k, v in event.items() if k != "done"})
+                yield event
+        except Exception as error:
+            save(error=f"{type(error).__name__}: {error}")
+            raise
+        finally:
+            stream.close()
+            save(stats={"stopped": "user"})

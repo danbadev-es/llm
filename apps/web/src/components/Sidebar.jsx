@@ -1,100 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { groupByDate } from "../format.js";
+import ConversationItem from "./ConversationItem.jsx";
+import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 
-function ConversationItem({ conversation, active, onSelect, onRename, onAskDelete }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(conversation.title);
-  const itemRef = useRef(null);
-
-  // Close the options menu on any click outside this item.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e) => !itemRef.current?.contains(e.target) && setMenuOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [menuOpen]);
-
-  function finishRename(save) {
-    setEditing(false);
-    const clean = title.trim();
-    if (save && clean && clean !== conversation.title) onRename(conversation.id, clean);
-    else setTitle(conversation.title);
-  }
-
+function HistorySkeleton() {
   return (
-    <li ref={itemRef} className={`conversation ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""}`}>
-      {editing ? (
-        <input
-          className="rename-input"
-          value={title}
-          autoFocus
-          aria-label="Nuevo nombre"
-          onChange={(e) => setTitle(e.target.value)}
-          onFocus={(e) => e.target.select()}
-          onBlur={() => finishRename(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") finishRename(true);
-            if (e.key === "Escape") finishRename(false);
-          }}
-        />
-      ) : (
-        <button
-          className="conversation-title"
-          title={conversation.title}
-          aria-current={active ? "page" : undefined}
-          onClick={() => onSelect(conversation.id)}
-        >
-          {conversation.mode === "complete" && (
-            <span className="mode-tag" title="Modo completar">
-              ✎
-            </span>
-          )}
-          {conversation.title}
-        </button>
-      )}
-      {!editing && (
-        <button
-          className="icon-button options"
-          aria-label={`Opciones de «${conversation.title}»`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          ⋯
-        </button>
-      )}
-      {menuOpen && (
-        <div className="menu" role="menu">
-          <button
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              setTitle(conversation.title);
-              setEditing(true);
-            }}
-          >
-            ✎ Renombrar
-          </button>
-          <button
-            role="menuitem"
-            className="danger"
-            onClick={() => {
-              setMenuOpen(false);
-              onAskDelete(conversation);
-            }}
-          >
-            🗑 Eliminar
-          </button>
-        </div>
-      )}
-    </li>
+    <div className="history-skeleton" aria-hidden="true">
+      {[72, 55, 85, 62, 48].map((width, i) => (
+        <span key={i} className="skeleton-line" style={{ width: `${width}%` }} />
+      ))}
+    </div>
   );
 }
 
+// The history column. On phones it becomes a drawer (see App: `inert` keeps the hidden one
+// out of the tab order, and the backdrop closes it).
 export default function Sidebar({
   open,
+  hidden,
   onClose,
   conversations,
   currentId,
@@ -105,47 +29,59 @@ export default function Sidebar({
   onOpenSettings,
 }) {
   const [toDelete, setToDelete] = useState(null);
-  const groups = groupByDate(conversations);
 
   return (
     <>
-      <div className={`backdrop ${open ? "visible" : ""}`} onClick={onClose} />
-      <aside className={open ? "open" : ""}>
-        <div className="brand">
-          <h1>Leon</h1>
-          <span>0.1 · local</span>
-          <button className="icon-button close-sidebar" aria-label="Cerrar menú" onClick={onClose}>
-            ✕
+      <div className={`backdrop${open ? " visible" : ""}`} onClick={onClose} aria-hidden="true" />
+      <aside className={`sidebar${open ? " open" : ""}`} inert={hidden} aria-label="Barra lateral">
+        <div className="sidebar-top">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true">L</span>
+            <span className="brand-name">Leon</span>
+            <span className="brand-tag">local</span>
+          </div>
+          <button className="icon-button close-sidebar" type="button" aria-label="Cerrar menú" onClick={onClose}>
+            <Icon name="close" />
           </button>
         </div>
-        <button className="new-chat" onClick={onNewChat}>
-          ＋ Nueva conversación
+
+        <button className="new-chat" type="button" title="Nueva conversación (Ctrl+Shift+O)" onClick={onNewChat}>
+          <Icon name="newChat" size={17} />
+          Nueva conversación
         </button>
 
-        <nav className="history" aria-label="Historial de conversaciones">
-          {groups.length === 0 && <p className="empty">Tus conversaciones aparecerán aquí.</p>}
-          {groups.map((group) => (
-            <section key={group.label}>
-              <h3>{group.label}</h3>
-              <ul>
-                {group.items.map((conversation) => (
-                  <ConversationItem
-                    key={conversation.id}
-                    conversation={conversation}
-                    active={conversation.id === currentId}
-                    onSelect={onSelect}
-                    onRename={onRename}
-                    onAskDelete={setToDelete}
-                  />
-                ))}
-              </ul>
-            </section>
-          ))}
+        <nav className="history" aria-label="Historial de conversaciones" aria-busy={conversations === null}>
+          {conversations === null ? (
+            <HistorySkeleton />
+          ) : conversations.length === 0 ? (
+            <p className="history-empty">Tus conversaciones aparecerán aquí.</p>
+          ) : (
+            groupByDate(conversations).map((group, i) => (
+              <section key={group.label} aria-labelledby={`history-group-${i}`}>
+                <h3 id={`history-group-${i}`}>{group.label}</h3>
+                <ul>
+                  {group.items.map((conversation) => (
+                    <ConversationItem
+                      key={conversation.id}
+                      conversation={conversation}
+                      active={conversation.id === currentId}
+                      onSelect={onSelect}
+                      onRename={onRename}
+                      onAskDelete={setToDelete}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))
+          )}
         </nav>
 
-        <button className="settings-button" onClick={onOpenSettings}>
-          ⚙ Ajustes
-        </button>
+        <div className="sidebar-footer">
+          <button className="sidebar-button" type="button" onClick={onOpenSettings}>
+            <Icon name="sliders" size={17} />
+            Ajustes
+          </button>
+        </div>
       </aside>
 
       <Modal
@@ -158,7 +94,7 @@ export default function Sidebar({
           Se borrará <b>{toDelete?.title}</b> con todos sus mensajes. No se puede deshacer.
         </p>
         <div className="modal-actions">
-          <button type="button" className="button" onClick={() => setToDelete(null)}>
+          <button type="button" className="button" data-autofocus onClick={() => setToDelete(null)}>
             Cancelar
           </button>
           <button

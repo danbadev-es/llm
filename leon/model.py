@@ -263,6 +263,7 @@ class Leon(nn.Module):
         max_new_tokens: int,
         temperature: float = 1.0,
         top_k: int | None = None,
+        top_p: float | None = None,
         use_cache: bool = True,
         stop_ids: Collection[int] = (),
     ) -> Iterator[torch.Tensor]:
@@ -273,6 +274,11 @@ class Leon(nn.Module):
         cropped to fit and generation stops when the cache is full (the last sampled token
         is never fed back, so block_size - prompt + 1 tokens fit). Without the cache the
         context window slides instead. Generation also stops after any token in stop_ids.
+
+        Sampling: temperature 0 is greedy (argmax). Otherwise the logits are divided by the
+        temperature, then optionally filtered: top_k keeps the k most likely tokens, top_p
+        ("nucleus") keeps the smallest set of most likely tokens whose probabilities add up
+        to at least top_p. Both filters can be combined.
         """
         block_size = self.config.block_size
         cache = KVCache(self.config, idx.size(0)) if use_cache else None
@@ -291,6 +297,8 @@ class Leon(nn.Module):
                 if top_k is not None:
                     kth_value = torch.topk(logits, min(top_k, logits.size(-1))).values[:, [-1]]
                     logits = logits.masked_fill(logits < kth_value, float("-inf"))
+                if top_p is not None and top_p < 1.0:
+                    logits = _nucleus(logits, top_p)
                 next_id = torch.multinomial(F.softmax(logits, dim=-1), num_samples=1)
             idx = torch.cat([idx, next_id], dim=1)
             next_input = next_id
@@ -303,3 +311,12 @@ class Leon(nn.Module):
         """Like stream(), but returns the prompt followed by all generated tokens at once."""
         new = list(self.stream(idx, max_new_tokens, **kwargs))
         return torch.cat([idx, *new], dim=1)
+
+
+def _nucleus(logits: torch.Tensor, top_p: float) -> torch.Tensor:
+    """Top-p filter: mask every token outside the smallest most-likely set with mass >= top_p."""
+    sorted_logits, order = torch.sort(logits, descending=True)
+    probs = F.softmax(sorted_logits, dim=-1)
+    mass_before = probs.cumsum(dim=-1) - probs  # probability of the tokens ranked above each one
+    sorted_logits = sorted_logits.masked_fill(mass_before >= top_p, float("-inf"))  # the top token always stays
+    return torch.full_like(logits, float("-inf")).scatter(-1, order, sorted_logits)

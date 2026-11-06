@@ -1,14 +1,26 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useState } from "react";
+import Icon from "./Icon.jsx";
 
-export default function Composer({ mode, busy, disabled, onSend, onStop }) {
-  const [text, setText] = useState("");
-  const inputRef = useRef(null);
+const MAX_HEIGHT = 220; // px; past this the text area scrolls instead of growing
 
+// Grows a <textarea> with its content. Shared with the inline message editor.
+export function useAutoGrow(ref, value, maxHeight = MAX_HEIGHT) {
   useLayoutEffect(() => {
-    const input = inputRef.current; // grow with the content, up to 200px
+    const input = ref.current;
     input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
-  }, [text]);
+    input.style.height = `${Math.min(input.scrollHeight, maxHeight)}px`;
+  }, [ref, value, maxHeight]);
+}
+
+// Enter sends, Shift+Enter adds a line. isComposing: Enter that confirms an IME composition
+// (accents on some keyboards, Japanese input…) must not send the message.
+export const isSendKey = (e) => e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing;
+
+// The input at the bottom. inputRef is owned by App, so global shortcuts can focus it.
+export default function Composer({ inputRef, mode, busy, disabled, onSend, onStop }) {
+  const [text, setText] = useState("");
+  useAutoGrow(inputRef, text);
+  const empty = text.trim() === "";
 
   function submit() {
     if (busy) return onStop();
@@ -17,31 +29,39 @@ export default function Composer({ mode, busy, disabled, onSend, onStop }) {
 
   return (
     <div className="composer">
-      <div className="column">
-        <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={text}
-            autoFocus
-            aria-label={mode === "chat" ? "Mensaje" : "Comienzo del texto"}
-            placeholder={mode === "chat" ? "Escribe un mensaje…" : "Escribe el comienzo de un texto…"}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (!busy) submit();
-              }
-            }}
-          />
-          <button className="send" type="submit" disabled={disabled && !busy} aria-label={busy ? "Detener" : "Enviar"} title={busy ? "Detener" : "Enviar"}>
-            {busy ? "■" : "↑"}
-          </button>
-        </form>
-        <div className="hint">
-          {mode === "chat" ? "Enter para enviar · Shift+Enter para salto de línea" : "El modelo continúa tu texto · Enter para enviar"}
-        </div>
-      </div>
+      <form
+        className="composer-box"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <textarea
+          ref={inputRef}
+          rows={1}
+          value={text}
+          aria-label={mode === "chat" ? "Mensaje" : "Comienzo del texto"}
+          placeholder={mode === "chat" ? "Escribe un mensaje…" : "Escribe el comienzo de un texto…"}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (!isSendKey(e)) return;
+            e.preventDefault();
+            if (!busy && !empty) submit(); // while generating, Enter never doubles as "stop"
+          }}
+        />
+        <button
+          className={`send-button${busy ? " stop" : ""}`}
+          type="submit"
+          disabled={!busy && (disabled || empty)}
+          aria-label={busy ? "Detener (Esc)" : "Enviar"}
+          title={busy ? "Detener (Esc)" : "Enviar (Enter)"}
+        >
+          <Icon name={busy ? "stop" : "arrowUp"} size={18} />
+        </button>
+      </form>
+      <p className="composer-hint">
+        {mode === "chat" ? "Enter para enviar · Shift+Enter para nueva línea" : "Leon continúa tu texto · Enter para enviar · Shift+Enter para nueva línea"}
+      </p>
     </div>
   );
 }

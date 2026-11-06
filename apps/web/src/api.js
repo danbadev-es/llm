@@ -1,5 +1,21 @@
-// Client for apps/api. Every call goes to /api/... on the same origin
-// (Flask in production, proxied by Vite in development).
+// Client for apps/api, on the same origin (Flask in production, proxied by Vite in development).
+//
+// Generation and models use the Anthropic-compatible API (/v1/...), the same one any Anthropic
+// client can use. The conversation history uses the app's own REST endpoints (/api/conversations).
+// This module translates between those wire formats and the small shapes the components use,
+// so the rest of the app does not depend on either of them.
+
+const CONVERSATION_HEADER = "X-Leon-Conversation";
+
+// The message of an error response: Anthropic's envelope {error: {message}} or the app's {error}.
+async function errorMessage(response, fallback) {
+  try {
+    const body = await response.json();
+    return body.error?.message ?? body.error ?? fallback;
+  } catch {
+    return fallback; // not a JSON body
+  }
+}
 
 async function request(method, url, body) {
   const response = await fetch(url, {
@@ -7,19 +23,24 @@ async function request(method, url, body) {
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!response.ok) {
-    let message = `${method} ${url}: ${response.status}`;
-    try {
-      message = (await response.json()).error ?? message;
-    } catch {
-      // not a JSON error body
-    }
-    throw new Error(message);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response, `${method} ${url}: ${response.status}`));
   return response.status === 204 ? null : response.json();
 }
 
-export const fetchModels = () => request("GET", "/api/models");
+// GET /v1/models → [{name, params, context, max_new_tokens, step, stage}] (Leon's extras live under "leon").
+export async function fetchModels() {
+  const { data } = await request("GET", "/v1/models");
+  return {
+    models: data.map((model) => ({
+      name: model.id,
+      params: model.leon.params,
+      context: model.leon.context,
+      max_new_tokens: model.leon.max_output_tokens,
+      step: model.leon.step,
+      stage: model.leon.stage,
+    })),
+  };
+}
 
 // --- conversation history ---
 export const listConversations = () => request("GET", "/api/conversations").then((data) => data.conversations);
@@ -28,27 +49,65 @@ export const createConversation = (mode, model, title) =>
   request("POST", "/api/conversations", { mode, model, title });
 export const renameConversation = (id, title) => request("PATCH", `/api/conversations/${id}`, { title });
 export const deleteConversation = (id) => request("DELETE", `/api/conversations/${id}`);
+// Keep the first `keep` saved messages: regenerating or editing replaces the last exchange.
+export const truncateConversation = (id, keep) =>
+  request("DELETE", `/api/conversations/${id}/messages?from=${keep}`);
 
-// POST /api/generate answers with Server-Sent Events: "data: {json}\n\n" per event.
-// onEvent receives {text}, then a final {done, tokens, tok_per_s, ...} or an {error}.
-// With body.conversation_id, the server also saves the exchange in that conversation.
+// The app's generation request → an Anthropic request: chat mode is the Messages API,
+// complete mode (raw continuation) the legacy Text Completions API.
+function toAnthropic(body) {
+  const sampling = { temperature: body.temperature, top_k: body.top_k, stream: true };
+  if (body.mode === "chat") {
+    return {
+      url: "/v1/messages",
+      payload: {
+        model: body.model,
+        max_tokens: body.max_new_tokens,
+        messages: body.messages,
+        ...(body.system?.trim() ? { system: body.system } : {}),
+        ...sampling,
+      },
+    };
+  }
+  return {
+    url: "/v1/complete",
+    payload: { model: body.model, prompt: body.prompt, max_tokens_to_sample: body.max_new_tokens, ...sampling },
+  };
+}
+
+// One Anthropic stream event → the app's events: {text}, {done, ...stats} or {error}.
+function fromAnthropic(event) {
+  switch (event.type) {
+    case "content_block_delta":
+      return event.delta?.type === "text_delta" ? { text: event.delta.text } : null;
+    case "message_delta":
+      return { done: true, ...event.leon }; // Leon's generation stats ride on the final delta
+    case "completion":
+      // Legacy completions: every event carries text; the last one also has stop_reason and stats.
+      return event.stop_reason ? { text: event.completion, final: { done: true, ...event.leon } } : { text: event.completion };
+    case "error":
+      return { error: event.error?.message ?? "error del servidor" };
+    default:
+      return null; // message_start, content_block_start/stop, message_stop, ping
+  }
+}
+
+// Stream one answer. onEvent receives {text} pieces, then {done, tokens, tok_per_s, prompt_tokens,
+// dropped_turns, stopped} or {error}. With body.conversation_id the server saves the exchange.
 export async function streamGenerate(body, { signal, onEvent }) {
-  const response = await fetch("/api/generate", {
+  const { url, payload } = toAnthropic(body);
+  const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      ...(body.conversation_id ? { [CONVERSATION_HEADER]: body.conversation_id } : {}),
+    },
+    body: JSON.stringify(payload),
     signal,
   });
-  if (!response.ok) {
-    let message = response.statusText;
-    try {
-      message = (await response.json()).error ?? message;
-    } catch {
-      // not a JSON error body
-    }
-    throw new Error(message);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response, response.statusText));
 
+  // Server-Sent Events: "event: <type>" and "data: <json>" lines, events separated by a blank line.
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -59,7 +118,16 @@ export async function streamGenerate(body, { signal, onEvent }) {
     const events = buffer.split("\n\n");
     buffer = events.pop(); // the last piece may be an incomplete event
     for (const raw of events) {
-      if (raw.startsWith("data: ")) onEvent(JSON.parse(raw.slice(6)));
+      const data = raw.split("\n").find((line) => line.startsWith("data: "));
+      if (!data) continue;
+      const event = fromAnthropic(JSON.parse(data.slice(6)));
+      if (!event) continue;
+      if (event.final) {
+        if (event.text) onEvent({ text: event.text });
+        onEvent(event.final);
+      } else {
+        onEvent(event);
+      }
     }
   }
 }

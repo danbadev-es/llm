@@ -16,7 +16,7 @@ data = ["pyarrow"]                                    # phase 2: Wikipedia parqu
 compile = ['triton-windows; sys_platform == "win32"']  # torch.compile on Windows
 api = ["flask"]                                       # apps/api
 notebooks = ["matplotlib", "ipykernel"]               # walkthrough.ipynb
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "anthropic"]                 # anthropic: the SDK in tests/test_anthropic_api.py
 all = ["leon[data,compile,api,notebooks,dev]"]
 
 [tool.setuptools]

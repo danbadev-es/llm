@@ -5,7 +5,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from leon.model import KVCache, Leon, LeonConfig, RMSNorm, apply_rope, precompute_rope
+from leon.model import KVCache, Leon, LeonConfig, RMSNorm, _nucleus, apply_rope, precompute_rope
 
 CONFIG = LeonConfig(vocab_size=64, block_size=32, n_layer=2, n_head=4, n_kv_head=2, n_embd=32)
 
@@ -114,6 +114,21 @@ def test_stream_stops_at_stop_ids() -> None:
     first = next(model.stream(prompt, 10, temperature=0)).item()
     tokens = list(model.stream(prompt, 10, temperature=0, stop_ids={first}))
     assert len(tokens) == 1 and tokens[0].item() == first
+
+
+def test_top_p_keeps_the_smallest_likely_set() -> None:
+    logits = torch.tensor([[0.5, 0.3, 0.15, 0.05]]).log()
+    kept = _nucleus(logits, 0.75).isfinite().tolist()
+    assert kept == [[True, True, False, False]]  # 0.5 < 0.75 <= 0.5 + 0.3
+    assert _nucleus(logits, 1e-6).isfinite().sum() == 1  # the most likely token always stays
+
+
+def test_stream_with_tiny_top_p_is_greedy() -> None:
+    torch.manual_seed(0)
+    model = Leon(CONFIG).eval()
+    prompt = torch.randint(CONFIG.vocab_size, (1, 5))
+    greedy = model.generate(prompt, 10, temperature=0)
+    assert torch.equal(model.generate(prompt, 10, temperature=1.0, top_p=1e-6), greedy)
 
 
 def test_initial_loss_near_uniform() -> None:

@@ -125,7 +125,7 @@ Lo define `leon.chat.encode_chat`, y es la única implementación: la fase 5 lo 
 
 ### API HTTP
 
-`GET /api/models`, `POST /api/generate` (Server-Sent Events) y el CRUD de `/api/conversations`. Ver [`apps/README.md`](apps/README.md).
+Compatible con la API de Claude (`apps/api/anthropic_api.py`), para que el SDK oficial `anthropic` hable con Leon cambiando solo la URL base: `POST /v1/messages` (modo chat, con o sin streaming), `POST /v1/messages/count_tokens`, `POST /v1/complete` (modo completar, la antigua Text Completions) y `GET /v1/models`. Lo propio de Leon va en una clave `leon` (estadísticas de generación, metadatos del checkpoint) y en la cabecera `X-Leon-Conversation` (guardar en el historial). Además, el CRUD de `/api/conversations`. La web usa esta misma API (`apps/web/src/api.js` traduce entre ella y sus componentes). Ver [`apps/README.md`](apps/README.md).
 
 ### Historial de conversaciones
 

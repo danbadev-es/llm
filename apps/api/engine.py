@@ -1,6 +1,12 @@
 """Model side of the chat: find checkpoints, build prompts, stream generated text.
 
 Kept free of any web framework so it can be reused (phase 6 will add the tool-calling loop here).
+Every generation endpoint (the Anthropic-compatible /v1 API in anthropic_api.py) turns
+its request into the same `params` dict and calls Engine.stream():
+
+    model, mode ("chat" | "complete"), temperature, top_k, top_p, max_new_tokens, stop_sequences
+    complete mode: prompt                 the raw text to continue
+    chat mode:     system, messages       and prefill: continue the final assistant message
 """
 
 import threading
@@ -24,7 +30,7 @@ def find_checkpoints() -> dict[str, Path]:
     return {f"{p.parent.parent.name}/{p.parent.name}": p for p in paths}
 
 
-def _number(request: dict, key: str, default, low, high, integer: bool = False):
+def read_number(request: dict, key: str, default, low, high, integer: bool = False):
     """Read an optional numeric field, rejecting wrong types and values outside [low, high]."""
     value = request.get(key, default)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or (integer and not isinstance(value, int)):
@@ -34,47 +40,15 @@ def _number(request: dict, key: str, default, low, high, integer: bool = False):
     return value
 
 
-def validate(request) -> dict:
-    """Check a /api/generate body and return its normalized parameters.
+def _find_stop(text: str, stop_sequences: list[str]) -> tuple[int, str | None]:
+    """Where the earliest stop sequence starts in text, and which one: (len(text), None) if none."""
+    hits = [(text.find(stop), stop) for stop in stop_sequences if stop in text]
+    return min(hits) if hits else (len(text), None)
 
-    Everything is checked here, before any response header is sent, so a bad request gets
-    a clean 400 instead of failing in the middle of the event stream.
-    """
-    if not isinstance(request, dict):
-        raise ValueError("the body must be a JSON object")
-    if request.get("model") not in find_checkpoints():
-        raise ValueError(f"unknown model: {request.get('model')}")
-    if request.get("mode") not in MODES:
-        raise ValueError(f"'mode' must be one of {MODES}")
-    params = {
-        "model": request["model"],
-        "mode": request["mode"],
-        "temperature": float(_number(request, "temperature", 0.8, 0.0, 5.0)),
-        "top_k": _number(request, "top_k", 40, 0, 100_000, integer=True),  # 0 = no top-k filter
-        "max_new_tokens": _number(request, "max_new_tokens", 200, 1, 100_000, integer=True),
-    }
-    if request["mode"] == "complete":
-        if not isinstance(request.get("prompt"), str) or not request["prompt"]:
-            raise ValueError("complete mode needs a non-empty string 'prompt'")
-        params["prompt"] = request["prompt"]
-        return params
 
-    messages = request.get("messages")
-    if not isinstance(messages, list) or not messages:
-        raise ValueError("chat mode needs a non-empty 'messages' list")
-    for message in messages:
-        if (
-            not isinstance(message, dict)
-            or message.get("role") not in ("user", "assistant")
-            or not isinstance(message.get("content"), str)
-        ):
-            raise ValueError("each message needs 'role' ('user' or 'assistant') and a string 'content'")
-    system = request.get("system", "")
-    if not isinstance(system, str):
-        raise ValueError("'system' must be a string")
-    params["messages"] = [{"role": m["role"], "content": m["content"]} for m in messages]
-    params["system"] = system.strip()
-    return params
+def _partial_stop(text: str, stop_sequences: list[str]) -> int:
+    """Length of the longest end of text that could still grow into a stop sequence."""
+    return max((k for stop in stop_sequences for k in range(1, len(stop)) if text.endswith(stop[:k])), default=0)
 
 
 class Engine:
@@ -133,16 +107,26 @@ class Engine:
         system = [{"role": "system", "content": params["system"]}] if params["system"] else []
         messages = params["messages"]
         for dropped in range(len(messages)):
-            ids = encode_chat(self.tokenizer, system + messages[dropped:])
+            ids = encode_chat(self.tokenizer, system + messages[dropped:], continue_final_message=params["prefill"])
             if len(ids) <= budget or dropped == len(messages) - 1:
                 return ids[-budget:], dropped  # only a single huge message gets cut from its start
-        raise AssertionError("unreachable: validate() guarantees at least one message")
+        raise AssertionError("unreachable: the request parser guarantees at least one message")
+
+    def count_tokens(self, params: dict) -> int:
+        """Prompt length in tokens, before any old turn is dropped to make it fit."""
+        if params["mode"] == "complete":
+            return len(self.tokenizer.encode(params["prompt"]))
+        system = [{"role": "system", "content": params["system"]}] if params["system"] else []
+        return len(encode_chat(self.tokenizer, system + params["messages"], continue_final_message=params["prefill"]))
 
     def stream(self, params: dict) -> Iterator[dict]:
-        """Yield {"text": piece} events while generating, then one {"done": ...} event.
+        """Yield one {"started": ...} event, {"text": piece} events while generating, then {"done": ...}.
 
-        `params` comes from validate(). Closing the generator (the client disconnected)
-        stops generation and releases the lock.
+        The final event carries the stats: tokens, tok_per_s, prompt_tokens, dropped_turns,
+        stopped ("end" | "max_tokens" | "stop_sequence") and stop_sequence (the one that matched).
+        Text that matches a stop sequence is never sent, and text that could still become one
+        is held back until the next token decides it. Closing the generator (the client
+        disconnected) stops generation and releases the lock.
         """
         with self.lock:
             model = self._load(params["model"])
@@ -160,28 +144,47 @@ class Engine:
                 ids = self.tokenizer.encode(params["prompt"])[-budget:]  # keep the most recent text
                 stop_ids = {self.tokenizer.eot_id}
 
+            # The prompt is ready (and the model loaded): endpoints can start their response.
+            yield {"started": True, "prompt_tokens": len(ids), "dropped_turns": dropped_turns}
             idx = torch.tensor([ids], dtype=torch.long, device=self.device)
+            stops = params["stop_sequences"]
             generated: list[int] = []
             emitted = ""
+            stopped, stop_sequence = "max_tokens", None
             start = time.perf_counter()
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
                 tokens = model.stream(
-                    idx, max_new, temperature=params["temperature"], top_k=params["top_k"] or None, stop_ids=stop_ids
+                    idx,
+                    max_new,
+                    temperature=params["temperature"],
+                    top_k=params["top_k"] or None,
+                    top_p=params["top_p"],
+                    stop_ids=stop_ids,
                 )
                 for next_id in tokens:
                     token = next_id.item()
                     if token in stop_ids:
+                        stopped = "end"
                         break
                     generated.append(token)
                     # A token may end in the middle of a multi-byte character: wait for the rest.
                     text = self.tokenizer.decode(generated)
                     if text.endswith("�"):
                         continue
-                    yield {"text": text[len(emitted) :]}
-                    emitted = text
-            tail = self.tokenizer.decode(generated)[len(emitted) :]
-            if tail:  # a character still incomplete when generation ended is sent as it is
-                yield {"text": tail}
+                    cut, stop_sequence = _find_stop(text, stops)
+                    if stop_sequence is not None:
+                        break
+                    cut -= _partial_stop(text, stops)
+                    if cut > len(emitted):
+                        yield {"text": text[len(emitted) : cut]}
+                        emitted = text[:cut]
+            # The rest: held-back text, or a character still incomplete when generation ended.
+            text = self.tokenizer.decode(generated)
+            cut, stop_sequence = _find_stop(text, stops)
+            if stop_sequence is not None:
+                stopped = "stop_sequence"
+            if cut > len(emitted):
+                yield {"text": text[len(emitted) : cut]}
             elapsed = time.perf_counter() - start
             yield {
                 "done": True,
@@ -189,5 +192,6 @@ class Engine:
                 "tok_per_s": len(generated) / elapsed if elapsed > 0 else 0.0,
                 "prompt_tokens": len(ids),
                 "dropped_turns": dropped_turns,
-                "stopped": "end" if len(generated) < max_new else "max_tokens",
+                "stopped": stopped,
+                "stop_sequence": stop_sequence,
             }

@@ -1,57 +1,71 @@
-import { useEffect, useRef } from "react";
-import { formatStats } from "../format.js";
+import useAutoScroll from "../hooks/useAutoScroll.js";
+import Icon from "./Icon.jsx";
+import Message from "./Message.jsx";
+import Welcome from "./Welcome.jsx";
 
-const SUGGESTIONS = {
-  complete: ["En un lugar de la Mancha", "La ciudad de Madrid es", "El sistema solar está formado por", "La Segunda Guerra Mundial"],
-  chat: ["Hola, ¿quién eres?", "¿Cuál es la capital de Francia?", "Explícame qué es la fotosíntesis", "Cuéntame un chiste"],
-};
-
-function Welcome({ mode, onSuggestion }) {
+function ThreadSkeleton() {
   return (
-    <div className="welcome">
-      <h2>{mode === "chat" ? "¿En qué puedo ayudarte?" : "Empieza un texto"}</h2>
-      <p>{mode === "chat" ? "Conversa con Leon" : "Leon lo continuará token a token"}</p>
-      <div className="suggestions">
-        {SUGGESTIONS[mode].map((text) => (
-          <button key={text} onClick={() => onSuggestion(text)}>{text}</button>
-        ))}
-      </div>
+    <div className="thread-skeleton" aria-hidden="true">
+      <span className="skeleton-line user" />
+      <span className="skeleton-line" style={{ width: "92%" }} />
+      <span className="skeleton-line" style={{ width: "78%" }} />
+      <span className="skeleton-line" style={{ width: "60%" }} />
     </div>
   );
 }
 
-function Message({ message }) {
-  const meta = formatStats(message.stats);
+// The scrolling conversation. Only the last exchange can be regenerated or edited: the history
+// is a straight line (no branches), so changing an older turn would orphan everything after it.
+export default function Thread({
+  mode,
+  messages,
+  loading,
+  busy,
+  canSend,
+  viewKey,
+  pinKey,
+  notice,
+  onSuggestion,
+  onCopy,
+  onRegenerate,
+  onEdit,
+}) {
+  const { scrollRef, contentRef, atBottom, jumpToLatest } = useAutoScroll(pinKey);
+  const last = messages.length - 1;
+  const editable = mode === "chat" ? messages.findLastIndex((m) => m.role === "user") : last;
+
   return (
-    <div className={`msg ${message.role}`}>
-      <div>
-        <div className="bubble">
-          {message.prompt && <span className="prompt">{message.prompt}</span>}
-          <span className={message.streaming ? "cursor" : ""}>{message.content}</span>
-          {message.error && <span className="error">Error: {message.error}</span>}
+    <div className="thread">
+      <div className="thread-scroll" ref={scrollRef}>
+        <div className="thread-content" ref={contentRef} aria-busy={loading}>
+          {notice}
+          {loading ? (
+            <ThreadSkeleton />
+          ) : messages.length === 0 ? (
+            <Welcome mode={mode} disabled={!canSend} onSuggestion={onSuggestion} />
+          ) : (
+            messages.map((message, i) => (
+              <Message
+                // viewKey changes with the conversation on screen: a half-open editor or a
+                // "copied" check never leaks into the message at the same position of another one.
+                key={`${viewKey}:${i}`}
+                message={message}
+                canEdit={!busy && canSend && i === editable}
+                canRegenerate={!busy && canSend && i === last && message.role === "assistant"}
+                onCopy={onCopy}
+                onRegenerate={onRegenerate}
+                onEdit={onEdit}
+              />
+            ))
+          )}
         </div>
-        {meta && <div className="meta">{meta}</div>}
       </div>
-    </div>
-  );
-}
-
-export default function Thread({ mode, messages, onSuggestion }) {
-  const scrollRef = useRef(null);
-  useEffect(() => {
-    const box = scrollRef.current;
-    box.scrollTop = box.scrollHeight; // follow the text as it streams in
-  }, [messages]);
-
-  return (
-    <div className="messages" ref={scrollRef}>
-      <div className="column">
-        {messages.length === 0 ? (
-          <Welcome mode={mode} onSuggestion={onSuggestion} />
-        ) : (
-          messages.map((message, i) => <Message key={i} message={message} />)
-        )}
-      </div>
+      {!atBottom && !loading && messages.length > 0 && (
+        <button type="button" className="jump-button" onClick={jumpToLatest}>
+          <Icon name="arrowDown" size={16} />
+          Ir al final
+        </button>
+      )}
     </div>
   );
 }
