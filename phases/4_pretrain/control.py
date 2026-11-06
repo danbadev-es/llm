@@ -209,57 +209,57 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def finish_time(hours: float) -> str:
-    """'hoy 23:40', 'mañana 12:15' or '08/11 03:00': when the remaining GPU hours end."""
+    """'today 23:40', 'tomorrow 12:15' or '08/11 03:00': when the remaining GPU hours end."""
     end = datetime.now() + timedelta(hours=hours)
     days = (end.date() - datetime.now().date()).days
-    day = {0: "hoy", 1: "mañana"}.get(days, end.strftime("%d/%m"))
+    day = {0: "today", 1: "tomorrow"}.get(days, end.strftime("%d/%m"))
     return f"{day} {end:%H:%M}"
 
 
 def dashboard(run: RunFiles, run_name: str) -> str:
-    """The text of the live dashboard (in Spanish: it is shown to the user)."""
+    """The text of the live dashboard."""
     status, pid = run.read_status(), run.running_pid()
     width = max(60, min(shutil.get_terminal_size().columns, 110))
     rule = "─" * width
     state = status.get("state")
     if pid:
-        label = f"● entrenando (pid {pid})"
+        label = f"● training (pid {pid})"
     elif state == "paused":
-        label = "⏸ en pausa · continúa con: control.py resume"
+        label = "⏸ paused · continue with: control.py resume"
     elif state == "finished":
-        label = "✓ terminado"
+        label = "✓ finished"
     elif status:
-        label = "✕ detenido inesperadamente (mira el log)"
+        label = "✕ stopped unexpectedly (see the log)"
     else:
-        label = "sin empezar · arráncalo con: control.py start"
-    lines = [f" Leon 0.1 · preentrenamiento (fase 4)   run: {run_name}", rule, f" Estado      {label}"]
+        label = "not started · start it with: control.py start"
+    lines = [f" Leon 0.1 · pretraining (phase 4)   run: {run_name}", rule, f" State       {label}"]
     if status:
         step, max_steps = status["step"], status["max_steps"]
         done = int(30 * step / max_steps)
         percent = 100 * step / max_steps
-        lines.append(f" Progreso    [{'█' * done}{'░' * (30 - done)}] {percent:5.1f} %   paso {step:,} / {max_steps:,}")
+        lines.append(f" Progress    [{'█' * done}{'░' * (30 - done)}] {percent:5.1f} %   step {step:,} / {max_steps:,}")
         tokens = status["tokens_seen"]
         total = max_steps * tokens / max(step, 1)
-        lines.append(f" Tokens      {tokens / 1e9:.3f}B de {total / 1e9:.2f}B")
+        lines.append(f" Tokens      {tokens / 1e9:.3f}B of {total / 1e9:.2f}B")
         losses = []
         if status.get("train_loss") is not None:
             losses.append(f"train {status['train_loss']:.3f}")
         if status.get("val_loss") is not None:
             losses.append(f"val {status['val_loss']:.3f} ({status['val_bits_per_byte']:.3f} bits/byte)")
         if status.get("best_val") is not None:
-            losses.append(f"mejor {status['best_val']:.3f}")
+            losses.append(f"best {status['best_val']:.3f}")
         if losses:
-            lines.append(f" Pérdida     {' · '.join(losses)}")
+            lines.append(f" Loss        {' · '.join(losses)}")
         if status.get("tok_per_s"):
-            lines.append(f" Velocidad   {status['tok_per_s']:,} tok/s")
+            lines.append(f" Speed       {status['tok_per_s']:,} tok/s")
         if pid and status.get("eta_hours") is not None:
             eta = status["eta_hours"]
-            lines.append(f" Restante    {eta:.1f} h  → termina {finish_time(eta)} si no se pausa")
+            lines.append(f" Remaining   {eta:.1f} h  → finishes {finish_time(eta)} if not paused")
         if pid:
             lines.append(f" GPU         {gpu_summary()}")
-        lines.append(f" Actualizado {status['updated_at']}")
+        lines.append(f" Updated     {status['updated_at']}")
         if status.get("sample"):
-            lines += ["", " Última muestra (se renueva en cada evaluación, cada 250 pasos):"]
+            lines += ["", " Latest sample (renewed at every evaluation, every 250 steps):"]
             lines += textwrap.wrap(
                 status["sample"].replace("\n", " ⏎ "),
                 width - 4,
@@ -273,8 +273,8 @@ def dashboard(run: RunFiles, run_name: str) -> str:
         lines += ["", " Log:"] + [f"   {line[: width - 4]}" for line in log[-5:]]
     lines += [
         rule,
-        " Cerrar esta ventana NO detiene el entrenamiento.",
-        ' Pausar: python phases/4_pretrain/control.py pause   (o dile "pausa" a Claude)',
+        " Closing this window does NOT stop the training.",
+        " Pause: python phases/4_pretrain/control.py pause",
     ]
     return "\n".join(lines)
 
@@ -285,7 +285,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
     if sys.platform == "win32":
         import ctypes
 
-        ctypes.windll.kernel32.SetConsoleTitleW(f"Leon 0.1 · preentrenamiento ({args.run})")
+        ctypes.windll.kernel32.SetConsoleTitleW(f"Leon 0.1 · pretraining ({args.run})")
         os.system("")  # enables ANSI escape codes in the classic Windows console
     try:
         while True:
@@ -293,7 +293,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
             if run.running_pid() is None and run.read_status().get("state") in ("paused", "finished"):
                 break
             time.sleep(args.interval)
-        input("\n El entrenamiento no está corriendo. Pulsa Enter para cerrar esta ventana.")
+        input("\n Training is not running. Press Enter to close this window.")
     except (KeyboardInterrupt, EOFError):
         pass
 

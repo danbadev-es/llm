@@ -74,7 +74,7 @@ class ConversationStore:
         now = time.time()
         conversation = {
             "id": uuid.uuid4().hex,
-            "title": title_from(title) or "Nueva conversación",
+            "title": title_from(title) or "Untitled",
             "mode": mode,
             "model": model,
             "created_at": now,

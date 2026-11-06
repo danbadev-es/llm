@@ -46,7 +46,7 @@ python phases/4_pretrain/control.py pause     # guarda y para (unos segundos)
 python phases/4_pretrain/control.py resume    # continúa donde se quedó
 ```
 
-El entrenamiento corre **sin ventana**, así que no hay nada que se pueda cerrar por error. `start` y `resume` abren además una ventana con el panel `watch` (título "Leon 0.1 · preentrenamiento"), que muestra:
+El entrenamiento corre **sin ventana**, así que no hay nada que se pueda cerrar por error. `start` y `resume` abren además una ventana con el panel `watch` (título "Leon 0.1 · pretraining", en inglés como todo el código), que muestra:
 
 - estado y barra de progreso;
 - pérdidas y velocidad;
