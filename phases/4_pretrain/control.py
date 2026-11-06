@@ -5,9 +5,12 @@
     python phases/4_pretrain/control.py pause      finish the current step, save and stop
     python phases/4_pretrain/control.py resume     continue exactly where it paused
     python phases/4_pretrain/control.py status     progress, losses, ETA, GPU temperature
+    python phases/4_pretrain/control.py watch      live dashboard that refreshes itself
 
-The trainer runs as an independent process: it keeps going if this terminal, VS Code or the
-chat session is closed. Arguments after `--` are passed to train.py (e.g. a tiny smoke test:
+The trainer runs as an independent process with no window: it keeps going if this terminal,
+VS Code or the chat session is closed. `start` and `resume` also open a `watch` window
+(skip it with --no-watch); closing that window does not stop the training.
+Arguments after `--` are passed to train.py (e.g. a tiny smoke test:
 `control.py start --run smoke -- --dataset quijote --device cpu --n-layer 1 ...`).
 """
 
@@ -16,7 +19,9 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from leon.paths import CHECKPOINT_DIR, DATA_DIR, ROOT
@@ -34,8 +39,12 @@ def launch(run: RunFiles, train_args: list[str]) -> None:
     run.dir.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
     flags = 0
-    if sys.platform == "win32":  # own process group, no console: survives closing this terminal
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    if sys.platform == "win32":
+        # A hidden console of its own (no window that could be closed by mistake) and its own
+        # process group (Ctrl+C here does not reach it): it survives closing this terminal.
+        # DETACHED_PROCESS is not enough: the venv's python.exe is a launcher, and its child,
+        # the real interpreter, would open a new, empty console window.
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     with open(run.log, "a", encoding="utf-8") as log:
         log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(train_args)}\n")
         log.flush()
@@ -58,6 +67,20 @@ def launch(run: RunFiles, train_args: list[str]) -> None:
     print(f"Training running in the background (pid {process.pid}).")
     print(f"  log:    {run.log}")
     print("  status: python phases/4_pretrain/control.py status")
+
+
+def open_watch_window(run_name: str) -> None:
+    """Open the live dashboard in a terminal window of its own (Windows)."""
+    if sys.platform != "win32":
+        print(f"  watch:  python phases/4_pretrain/control.py watch --run {run_name}")
+        return
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "watch", "--run", run_name],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+    )
+    print("  watch:  opened a dashboard window (closing it does not stop the training)")
 
 
 def print_log_tail(run: RunFiles, lines: int) -> None:
@@ -116,6 +139,8 @@ def cmd_start(args: argparse.Namespace) -> None:
     if "--dataset" not in args.train_args:
         check_data()
     launch(run, ["--run", args.run, *(["--overwrite"] if args.fresh else []), *args.train_args])
+    if not args.no_watch:
+        open_watch_window(args.run)
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
@@ -125,6 +150,8 @@ def cmd_resume(args: argparse.Namespace) -> None:
     if not run.last.exists():
         raise SystemExit(f"Nothing to resume: {run.last} does not exist. Use `control.py start`.")
     launch(run, ["--run", args.run, "--resume", *args.train_args])
+    if not args.no_watch:
+        open_watch_window(args.run)
 
 
 def cmd_pause(args: argparse.Namespace) -> None:
@@ -181,6 +208,96 @@ def cmd_status(args: argparse.Namespace) -> None:
     print_log_tail(run, args.lines)
 
 
+def finish_time(hours: float) -> str:
+    """'hoy 23:40', 'mañana 12:15' or '08/11 03:00': when the remaining GPU hours end."""
+    end = datetime.now() + timedelta(hours=hours)
+    days = (end.date() - datetime.now().date()).days
+    day = {0: "hoy", 1: "mañana"}.get(days, end.strftime("%d/%m"))
+    return f"{day} {end:%H:%M}"
+
+
+def dashboard(run: RunFiles, run_name: str) -> str:
+    """The text of the live dashboard (in Spanish: it is shown to the user)."""
+    status, pid = run.read_status(), run.running_pid()
+    width = max(60, min(shutil.get_terminal_size().columns, 110))
+    rule = "─" * width
+    state = status.get("state")
+    if pid:
+        label = f"● entrenando (pid {pid})"
+    elif state == "paused":
+        label = "⏸ en pausa · continúa con: control.py resume"
+    elif state == "finished":
+        label = "✓ terminado"
+    elif status:
+        label = "✕ detenido inesperadamente (mira el log)"
+    else:
+        label = "sin empezar · arráncalo con: control.py start"
+    lines = [f" Leon 0.1 · preentrenamiento (fase 4)   run: {run_name}", rule, f" Estado      {label}"]
+    if status:
+        step, max_steps = status["step"], status["max_steps"]
+        done = int(30 * step / max_steps)
+        percent = 100 * step / max_steps
+        lines.append(f" Progreso    [{'█' * done}{'░' * (30 - done)}] {percent:5.1f} %   paso {step:,} / {max_steps:,}")
+        tokens = status["tokens_seen"]
+        total = max_steps * tokens / max(step, 1)
+        lines.append(f" Tokens      {tokens / 1e9:.3f}B de {total / 1e9:.2f}B")
+        losses = []
+        if status.get("train_loss") is not None:
+            losses.append(f"train {status['train_loss']:.3f}")
+        if status.get("val_loss") is not None:
+            losses.append(f"val {status['val_loss']:.3f} ({status['val_bits_per_byte']:.3f} bits/byte)")
+        if status.get("best_val") is not None:
+            losses.append(f"mejor {status['best_val']:.3f}")
+        if losses:
+            lines.append(f" Pérdida     {' · '.join(losses)}")
+        if status.get("tok_per_s"):
+            lines.append(f" Velocidad   {status['tok_per_s']:,} tok/s")
+        if pid and status.get("eta_hours") is not None:
+            eta = status["eta_hours"]
+            lines.append(f" Restante    {eta:.1f} h  → termina {finish_time(eta)} si no se pausa")
+        if pid:
+            lines.append(f" GPU         {gpu_summary()}")
+        lines.append(f" Actualizado {status['updated_at']}")
+        if status.get("sample"):
+            lines += ["", " Última muestra (se renueva en cada evaluación, cada 250 pasos):"]
+            lines += textwrap.wrap(
+                status["sample"].replace("\n", " ⏎ "),
+                width - 4,
+                initial_indent="   ",
+                subsequent_indent="   ",
+                max_lines=4,
+                placeholder=" …",
+            )
+    if run.log.exists():
+        log = [line for line in run.log.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+        lines += ["", " Log:"] + [f"   {line[: width - 4]}" for line in log[-5:]]
+    lines += [
+        rule,
+        " Cerrar esta ventana NO detiene el entrenamiento.",
+        ' Pausar: python phases/4_pretrain/control.py pause   (o dile "pausa" a Claude)',
+    ]
+    return "\n".join(lines)
+
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    """Redraw the dashboard every few seconds until the run stops (Ctrl+C quits the dashboard only)."""
+    run = RunFiles(RUNS_DIR / args.run)
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleTitleW(f"Leon 0.1 · preentrenamiento ({args.run})")
+        os.system("")  # enables ANSI escape codes in the classic Windows console
+    try:
+        while True:
+            print("\x1b[2J\x1b[H" + dashboard(run, args.run), flush=True)  # clear the screen, cursor home
+            if run.running_pid() is None and run.read_status().get("state") in ("paused", "finished"):
+                break
+            time.sleep(args.interval)
+        input("\n El entrenamiento no está corriendo. Pulsa Enter para cerrar esta ventana.")
+    except (KeyboardInterrupt, EOFError):
+        pass
+
+
 def main() -> None:
     argv = sys.argv[1:]
     train_args = argv[argv.index("--") + 1 :] if "--" in argv else []
@@ -194,11 +311,15 @@ def main() -> None:
         ("pause", cmd_pause, "save and stop cleanly"),
         ("resume", cmd_resume, "continue a paused run"),
         ("status", cmd_status, "show progress"),
+        ("watch", cmd_watch, "live dashboard (closing it does not stop training)"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.set_defaults(fn=fn)
         command.add_argument("--run", default="leon_0.1")
     sub.choices["start"].add_argument("--fresh", action="store_true", help="discard an existing run's progress")
+    for name in ("start", "resume"):
+        sub.choices[name].add_argument("--no-watch", action="store_true", help="do not open the dashboard window")
+    sub.choices["watch"].add_argument("--interval", type=float, default=5, help="seconds between refreshes")
     sub.choices["pause"].add_argument("--no-wait", action="store_true", help="return without waiting for the save")
     sub.choices["pause"].add_argument("--timeout", type=int, default=180)
     sub.choices["status"].add_argument("--lines", type=int, default=5, help="log lines to show")

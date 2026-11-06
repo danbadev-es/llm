@@ -10,7 +10,7 @@ El resultado (`checkpoints/4_pretrain/leon_0.1/best.pt`) es un modelo que escrib
 
 | Archivo | Contenido |
 |---|---|
-| `control.py` | `prepare`, `start`, `pause`, `resume`, `status`: maneja el entrenamiento como proceso en segundo plano |
+| `control.py` | `prepare`, `start`, `pause`, `resume`, `status`, `watch`: maneja el entrenamiento como proceso en segundo plano |
 | `train.py` | El bucle de entrenamiento, con la configuración de Leon 0.1 por defecto, pausa limpia y `status.json` |
 | [`leon/run.py`](../../leon/run.py) | Ficheros de control de un entrenamiento: PID, petición de pausa, estado, log y "no suspender Windows" |
 
@@ -40,10 +40,22 @@ Después, por sesiones:
 
 ```powershell
 python phases/4_pretrain/control.py start     # la primera vez
-python phases/4_pretrain/control.py status    # ¿cómo va?
+python phases/4_pretrain/control.py status    # ¿cómo va? (una vez)
+python phases/4_pretrain/control.py watch     # panel en vivo que se refresca solo
 python phases/4_pretrain/control.py pause     # guarda y para (unos segundos)
 python phases/4_pretrain/control.py resume    # continúa donde se quedó
 ```
+
+El entrenamiento corre **sin ventana**, así que no hay nada que se pueda cerrar por error. `start` y `resume` abren además una ventana con el panel `watch` (título "Leon 0.1 · preentrenamiento"), que muestra:
+
+- estado y barra de progreso;
+- pérdidas y velocidad;
+- la hora estimada de fin;
+- la GPU;
+- la última muestra de texto;
+- las últimas líneas del log.
+
+**Cerrar esa ventana no detiene el entrenamiento**: para pararlo, usa `pause`. Con `--no-watch` no se abre la ventana.
 
 En una sesión con Claude Code basta con decir **"prepara los datos de la fase 4"**, **"arranca"**, **"¿cómo va?"**, **"pausa"** o **"continúa"** (ver [`CLAUDE.md`](../../CLAUDE.md)).
 

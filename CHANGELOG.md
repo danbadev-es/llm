@@ -5,6 +5,12 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Añadido
+- `control.py watch`: panel en vivo del preentrenamiento, con progreso, pérdidas, velocidad, hora estimada de fin, GPU, última muestra y log. `start` y `resume` lo abren en su propia ventana.
+
+### Corregido
+- El entrenamiento lanzado por `control.py` abría una ventana de consola vacía, la del intérprete real que lanza el `python.exe` del venv. Cerrarla mataba el entrenamiento. Ahora corre sin ventana (`CREATE_NO_WINDOW`).
+
+### Añadido (antes)
 - **Chat con historial**:
   - Conversaciones guardadas en SQLite (`apps/api/store.py`, `data/chat.db`), con API REST `/api/conversations`.
   - El lateral muestra el historial agrupado por fecha, con renombrar y eliminar.
