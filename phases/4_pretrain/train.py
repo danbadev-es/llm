@@ -16,7 +16,7 @@ import torch
 
 from leon.data import DATASETS, load_splits, load_tokenizer
 from leon.model import Leon, LeonConfig
-from leon.paths import CHECKPOINT_DIR
+from leon.paths import CHECKPOINT_DIR, DEFAULT_TOKENIZER
 from leon.run import RunFiles, keep_system_awake
 from leon.training import bits_per_byte, estimate_loss, load_checkpoint, lr_at, save_checkpoint
 
@@ -72,9 +72,14 @@ def main() -> None:
     if args.resume:
         if not run.last.exists():
             raise SystemExit(f"Nothing to resume: {run.last} does not exist.")
-        saved = torch.load(run.last, map_location="cpu", weights_only=True, mmap=True)["settings"]
+        saved = torch.load(run.last, map_location="cpu", weights_only=True, mmap=True)
+        if saved.get("tokenizer", "v1") != DEFAULT_TOKENIZER:
+            raise SystemExit(
+                f"{run.last} was trained with tokenizer {saved.get('tokenizer', 'v1')}, but the data now uses "
+                f"{DEFAULT_TOKENIZER}: it cannot be resumed. Start over with `control.py start --fresh`."
+            )
         for key in RUN_SETTINGS:
-            setattr(args, key, saved[key])
+            setattr(args, key, saved["settings"][key])
     run.dir.mkdir(parents=True, exist_ok=True)
     run.pid.write_text(str(os.getpid()))
     run.clear_pause()  # a stale request from an earlier run must not stop this one

@@ -1,10 +1,11 @@
 """Correctness checks for leon.tokenizer. Run: python tests/test_tokenizer.py (or pytest)"""
 
 import random
-import re
 import tempfile
 from collections import Counter
 from pathlib import Path
+
+import regex as re  # the pre-tokenizer uses Unicode classes that the stdlib re lacks
 
 from leon.tokenizer import PRETOKENIZE_PATTERN, SPECIAL_TOKENS, BPETokenizer, count_chunks, merge_pair
 

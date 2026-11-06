@@ -109,12 +109,20 @@ def main() -> None:
         torch.backends.cuda.matmul.allow_tf32 = True
 
     run_dir = CHECKPOINT_ROOT / args.run
-    tokenizer = load_tokenizer()
-    pad_id = tokenizer.eot_id  # padding is never a target, so any id works
     train, val = ConversationFile(SFT_DIR / "train.npz"), ConversationFile(SFT_DIR / "val.npz")
 
     source = run_dir / "last.pt" if args.resume else args.base
     base = torch.load(source, map_location="cpu", weights_only=True)
+    # The model and the data must speak the same tokenizer: the same text has different ids in
+    # different versions, and a mismatch would train on noise without any error.
+    model_tokenizer = base.get("tokenizer", "v1")
+    if model_tokenizer != train.tokenizer:
+        raise SystemExit(
+            f"Tokenizer mismatch: {source} uses {model_tokenizer} but data/sft was encoded with {train.tokenizer}. "
+            "Use a base model of the same version, or rerun phases/5_sft/prepare.py."
+        )
+    tokenizer = load_tokenizer(model_tokenizer)
+    pad_id = tokenizer.eot_id  # padding is never a target, so any id works
     config = replace(LeonConfig(**base["config"]), dropout=args.dropout)
     model = Leon(config).to(device)
     optimizer = model.configure_optimizer(args.lr, args.weight_decay, (0.9, 0.95), device)
@@ -164,8 +172,25 @@ def main() -> None:
                     )
                 if val_loss < best_val:
                     best_val = val_loss
-                    save_checkpoint(run_dir / "best.pt", model, step, best_val, settings=settings, stage="chat")
-                save_checkpoint(run_dir / "last.pt", model, step, best_val, optimizer, settings, stage="chat")
+                    save_checkpoint(
+                        run_dir / "best.pt",
+                        model,
+                        step,
+                        best_val,
+                        settings=settings,
+                        stage="chat",
+                        tokenizer=model_tokenizer,
+                    )
+                save_checkpoint(
+                    run_dir / "last.pt",
+                    model,
+                    step,
+                    best_val,
+                    optimizer,
+                    settings,
+                    stage="chat",
+                    tokenizer=model_tokenizer,
+                )
             if step == total_steps:
                 break
 
@@ -180,7 +205,9 @@ def main() -> None:
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
     except KeyboardInterrupt:
-        save_checkpoint(run_dir / "last.pt", model, step, best_val, optimizer, settings, stage="chat")
+        save_checkpoint(
+            run_dir / "last.pt", model, step, best_val, optimizer, settings, stage="chat", tokenizer=model_tokenizer
+        )
         print(f"\nInterrupted: saved last.pt at step {step}. Continue with --resume.", flush=True)
         return
 

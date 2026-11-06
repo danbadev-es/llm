@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LEON_ALLOWED = {"leon", "numpy", "torch"}  # plus the standard library
+LEON_ALLOWED = {"leon", "numpy", "regex", "torch"}  # plus the standard library
 
 
 def imported_modules(path: Path) -> set[str]:
@@ -19,8 +19,8 @@ def imported_modules(path: Path) -> set[str]:
     return names
 
 
-def test_leon_depends_only_on_stdlib_numpy_and_torch() -> None:
-    """Rule 1: the package never imports phases, apps or tests (or any other third-party library)."""
+def test_leon_depends_only_on_stdlib_numpy_regex_and_torch() -> None:
+    """Rule 1: the package never imports phases, apps or tests, nor third-party libraries beyond these."""
     import sys
 
     for path in (ROOT / "leon").glob("*.py"):

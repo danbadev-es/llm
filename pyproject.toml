@@ -9,7 +9,7 @@ description = "Leon 0.1: a Spanish conversational language model built from scra
 requires-python = ">=3.11"
 # PyTorch is installed separately (see README): the RTX 50 series (Blackwell) needs a
 # build compiled against CUDA 12.8+, which comes from PyTorch's own package index.
-dependencies = ["numpy"]
+dependencies = ["numpy", "regex"]  # regex: Unicode classes (\p{L}) for the pre-tokenizer
 
 [project.optional-dependencies]
 data = ["pyarrow"]                                    # phase 2: Wikipedia parquet shards

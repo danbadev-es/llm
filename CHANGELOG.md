@@ -4,6 +4,12 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 
 ## Sin publicar
 
+### Cambiado
+- **Tokenizer v2**: mismo vocabulario de 16k, regla de pre-tokenización de Llama 3, idéntica a la de llama.cpp, para poder exportar Leon a GGUF (LM Studio y Ollama).
+  - Cuesta un 1,8 % de compresión en Wikipedia.
+  - Cada checkpoint guarda su versión de tokenizer.
+  - Se re-tokenizaron Wikipedia, el Quijote y los datos de SFT, y **la fase 4 se reinició desde cero**: llevaba un 10 %.
+
 ### Añadido
 - **API compatible con Anthropic** (`apps/api/anthropic_api.py`):
   - `/v1/messages` (con streaming, prefill y `stop_sequences`), `/v1/messages/count_tokens`, `/v1/complete` (Text Completions) y `/v1/models`.

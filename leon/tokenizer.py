@@ -7,20 +7,34 @@ Vocabulary layout (ids):
 
 Text is first split into chunks by a regex (pre-tokenization) so that merges never
 cross word boundaries: " Mancha" can become one token, but "a," can never be.
+The `regex` module is used instead of `re` because it understands Unicode classes
+such as \\p{L} (any letter) and \\p{N} (any number), which the pre-tokenizer needs.
 """
 
 import heapq
 import json
-import re
 import time
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from pathlib import Path
 
-# A chunk is: an optional space followed by letters, or by 1-3 digits, or by punctuation;
-# or a run of whitespace. Every character falls into exactly one class, so the split is
-# lossless: "".join(chunks) == text. ("_" counts as \w, hence the explicit "|_".)
-PRETOKENIZE_PATTERN = r" ?[^\W\d_]+| ?\d{1,3}| ?(?:[^\w\s]|_)+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
+import regex as re  # drop-in replacement for re, with \p{...} classes
+
+# The pre-tokenizer of Llama 3, exactly as llama.cpp implements it (its "llama-bpe" type),
+# so a GGUF export tokenizes identically in LM Studio and Ollama. A chunk is:
+#   - an English contraction ('s, 't, 're, 've, 'm, 'll, 'd)
+#   - letters, optionally preceded by ONE other character: " Mancha", "¿Cuánto", "(hola"
+#   - 1 to 3 digits (numbers are split in groups: 1234 -> 123 | 4)
+#   - an optional space and punctuation, with any newlines that follow it
+#   - runs of whitespace
+# Every character falls into some class, so the split is lossless: "".join(chunks) == text.
+PRETOKENIZE_PATTERN = (
+    r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}"
+    r"| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
+)
+# The v1 tokenizer's own pattern (it is stored in leon_bpe_v1.json too): an optional space plus
+# letters, 1-3 digits or punctuation, or whitespace. ("_" counts as \w, hence the explicit "|_".)
+PRETOKENIZE_PATTERN_V1 = r" ?[^\W\d_]+| ?\d{1,3}| ?(?:[^\w\s]|_)+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
 
 # Reserved now so the vocabulary never changes between pretraining (phase 4),
 # chat SFT (phase 5) and tool-calling SFT (phase 6).

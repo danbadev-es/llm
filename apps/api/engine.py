@@ -19,7 +19,7 @@ import torch
 from leon.chat import encode_chat
 from leon.data import load_tokenizer
 from leon.model import Leon, LeonConfig
-from leon.paths import CHECKPOINT_DIR
+from leon.paths import CHECKPOINT_DIR, LEGACY_TOKENIZER
 
 MODES = ("complete", "chat")
 
@@ -56,7 +56,7 @@ class Engine:
 
     def __init__(self, device: str) -> None:
         self.device = device
-        self.tokenizer = load_tokenizer()
+        self.tokenizers: dict = {}  # loaded once per version: every checkpoint says which one it uses
         self.lock = threading.Lock()
         self.name: str | None = None
         self.version: float | None = None  # modification time of the loaded checkpoint file
@@ -98,7 +98,15 @@ class Engine:
                 torch.cuda.empty_cache()
         return self.model
 
-    def _chat_prompt(self, params: dict, budget: int) -> tuple[list[int], int]:
+    def tokenizer_for(self, name: str):
+        """The tokenizer a checkpoint was trained with (its "tokenizer" key; v1 if it has none)."""
+        meta = torch.load(find_checkpoints()[name], map_location="cpu", weights_only=True, mmap=True)
+        version = meta.get("tokenizer", LEGACY_TOKENIZER)
+        if version not in self.tokenizers:
+            self.tokenizers[version] = load_tokenizer(version)
+        return self.tokenizers[version]
+
+    def _chat_prompt(self, tokenizer, params: dict, budget: int) -> tuple[list[int], int]:
         """Encode the conversation within `budget` tokens.
 
         When it does not fit, whole turns are dropped starting from the oldest, always keeping
@@ -107,17 +115,18 @@ class Engine:
         system = [{"role": "system", "content": params["system"]}] if params["system"] else []
         messages = params["messages"]
         for dropped in range(len(messages)):
-            ids = encode_chat(self.tokenizer, system + messages[dropped:], continue_final_message=params["prefill"])
+            ids = encode_chat(tokenizer, system + messages[dropped:], continue_final_message=params["prefill"])
             if len(ids) <= budget or dropped == len(messages) - 1:
                 return ids[-budget:], dropped  # only a single huge message gets cut from its start
         raise AssertionError("unreachable: the request parser guarantees at least one message")
 
     def count_tokens(self, params: dict) -> int:
         """Prompt length in tokens, before any old turn is dropped to make it fit."""
+        tokenizer = self.tokenizer_for(params["model"])
         if params["mode"] == "complete":
-            return len(self.tokenizer.encode(params["prompt"]))
+            return len(tokenizer.encode(params["prompt"]))
         system = [{"role": "system", "content": params["system"]}] if params["system"] else []
-        return len(encode_chat(self.tokenizer, system + params["messages"], continue_final_message=params["prefill"]))
+        return len(encode_chat(tokenizer, system + params["messages"], continue_final_message=params["prefill"]))
 
     def stream(self, params: dict) -> Iterator[dict]:
         """Yield one {"started": ...} event, {"text": piece} events while generating, then {"done": ...}.
@@ -130,19 +139,20 @@ class Engine:
         """
         with self.lock:
             model = self._load(params["model"])
+            tokenizer = self.tokenizer_for(params["model"])
             block_size = model.config.block_size
             max_new = min(params["max_new_tokens"], block_size // 2)
             budget = block_size - max_new  # prompt tokens that leave room for the answer
 
             dropped_turns = 0
             if params["mode"] == "chat":
-                ids, dropped_turns = self._chat_prompt(params, budget)
+                ids, dropped_turns = self._chat_prompt(tokenizer, params, budget)
                 # Any control token ends the answer: normally <|end|>, but also <|user|>,
                 # <|endoftext|>... if the model tries to start another turn or document.
-                stop_ids = set(self.tokenizer.special_tokens.values())
+                stop_ids = set(tokenizer.special_tokens.values())
             else:
-                ids = self.tokenizer.encode(params["prompt"])[-budget:]  # keep the most recent text
-                stop_ids = {self.tokenizer.eot_id}
+                ids = tokenizer.encode(params["prompt"])[-budget:]  # keep the most recent text
+                stop_ids = {tokenizer.eot_id}
 
             # The prompt is ready (and the model loaded): endpoints can start their response.
             yield {"started": True, "prompt_tokens": len(ids), "dropped_turns": dropped_turns}
@@ -168,7 +178,7 @@ class Engine:
                         break
                     generated.append(token)
                     # A token may end in the middle of a multi-byte character: wait for the rest.
-                    text = self.tokenizer.decode(generated)
+                    text = tokenizer.decode(generated)
                     if text.endswith("�"):
                         continue
                     cut, stop_sequence = _find_stop(text, stops)
@@ -179,7 +189,7 @@ class Engine:
                         yield {"text": text[len(emitted) : cut]}
                         emitted = text[:cut]
             # The rest: held-back text, or a character still incomplete when generation ended.
-            text = self.tokenizer.decode(generated)
+            text = tokenizer.decode(generated)
             cut, stop_sequence = _find_stop(text, stops)
             if stop_sequence is not None:
                 stopped = "stop_sequence"

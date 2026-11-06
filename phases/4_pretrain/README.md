@@ -84,7 +84,7 @@ Otros usos:
 
 | Métrica | Valor |
 |---|---|
-| Tokens de entrenamiento (Wikipedia completa) | 1.335M train + 149M val (1,6M + 178k artículos, 3,96 bytes/token). 2,0B de tokens = 1,5 épocas |
+| Tokens de entrenamiento (Wikipedia completa, tokenizer v2) | 1.357M train + 152M val (1,6M + 178k artículos, 3,90 bytes/token). 2,0B de tokens = 1,47 épocas |
 | Mejor val loss / bits/byte (Wikipedia) | |
 | Bits/byte en el Quijote (fuera de dominio) | |
 | Throughput sostenido / horas totales de GPU | |

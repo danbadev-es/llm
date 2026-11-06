@@ -84,3 +84,27 @@ Observaciones:
 - El tokenizer comprime un 20 % peor el Quijote que Wikipedia: es otro dominio (castellano del siglo XVII).
 - Con 4,1 bytes/token, el shard 0 (688 MB de parquet) da 282M tokens. Los 13 shards (3,49 GB) darían **~1,4B tokens**, dentro del rango de 1–3B previsto para Leon 0.1.
 - Para igualar los 1,582 bits/byte de la fase 1 en el Quijote, un modelo con este tokenizer necesita una val loss de 1,582 · 3,50 · ln 2 ≈ **3,84 nats/token**. Esa es la referencia para la fase 3.
+
+### Tokenizer v2: compatible con llama.cpp (LM Studio, Ollama)
+
+Las tablas de arriba son del **v1**, el primer tokenizer, que usan los modelos de la fase 3. Para poder exportar Leon a GGUF y usarlo en LM Studio u Ollama, el tokenizer tiene que partir el texto **exactamente** igual que llama.cpp, y llama.cpp solo admite unas reglas de pre-tokenización concretas. Medido con el v1:
+
+| Regla de llama.cpp aplicada a los merges del v1 | Documentos tokenizados igual | Diferencia de tokens |
+|---|---|---|
+| GPT-2 | 0 % | +2,5 % |
+| Llama 3 (`llama-bpe`) | 10,8 % | +1,9 % |
+
+Por eso el **v2** se entrena con los mismos datos y el mismo tamaño de vocabulario, pero con la regla de pre-tokenización de **Llama 3**, idéntica a la de llama.cpp (`PRETOKENIZE_PATTERN` en `leon/tokenizer.py`). Usa el módulo `regex`, porque el `re` de Python no entiende `\p{L}` ni `\p{N}`.
+
+| | v1 | v2 |
+|---|---|---|
+| Bytes/token Wikipedia val | 4,19 | 4,11 (−1,8 %) |
+| Bytes/token Quijote val | 3,50 | 3,50 |
+| `1234` | ` 123` · `4` | ` ` · `123` · `4` (el espacio va aparte) |
+| Compatible con llama.cpp | ~98 % de los tokens | 100 % |
+| Tokens en disco, Wikipedia completa | — | 1.357M train + 152M val |
+
+- **Versiones**: `leon/paths.py` registra las dos (`TOKENIZERS`), y el v2 es el predeterminado.
+- **Cada checkpoint guarda su versión** (clave `tokenizer`), así que el chat usa la correcta: los modelos de la fase 3 son v1, y Leon 0.1 es v2 desde la fase 4.
+- **Una lección**: el tokenizer se elige pensando también en dónde se va a ejecutar el modelo. Cambiarlo obliga a reentrenar todo lo que viene después, y por eso se hizo con la fase 4 al 10 %.
+

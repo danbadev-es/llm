@@ -30,7 +30,7 @@ def make_app(tmp: Path):
     torch.manual_seed(0)
     save_checkpoint(tmp / "3_test" / "tiny" / "best.pt", Leon(config), step=1, best_val=0.0)
     engine.CHECKPOINT_DIR = tmp
-    engine.load_tokenizer = lambda: tokenizer
+    engine.load_tokenizer = lambda *_: tokenizer  # every tokenizer version resolves to the toy one
     store = ConversationStore(tmp / "chat.db")
     return api_app.create_app(engine.Engine("cpu"), store, PORT)
 

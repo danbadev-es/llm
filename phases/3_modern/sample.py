@@ -35,7 +35,7 @@ def main() -> None:
     checkpoint = torch.load(path, map_location=args.device, weights_only=True)
     model = Leon(LeonConfig(**checkpoint["config"])).to(args.device).eval()
     model.load_state_dict(checkpoint["model"])
-    tokenizer = load_tokenizer()
+    tokenizer = load_tokenizer(checkpoint.get("tokenizer", "v1"))  # the version the model was trained with
 
     prompt = torch.tensor([tokenizer.encode(args.prompt)], dtype=torch.long, device=args.device)
     use_bf16 = args.device.startswith("cuda") and torch.cuda.is_bf16_supported()

@@ -94,6 +94,13 @@ Estos formatos los producen unas piezas y los consumen otras. Cambiarlos rompe d
 
 Los especiales se reservaron en la fase 2 para que el vocabulario no cambie entre el preentrenamiento (fase 4), el SFT (fase 5) y el tool calling (fase 6).
 
+**Versiones del tokenizer** (`leon/paths.py`):
+
+- **v1**: el primero, con regla de pre-tokenización propia; lo usan los modelos de la fase 3.
+- **v2**: el de Leon 0.1 desde la fase 4. Mismo vocabulario, regla de pre-tokenización de Llama 3, idéntica a la de llama.cpp (`llama-bpe`), así que un export a GGUF tokeniza igual en LM Studio y Ollama.
+
+Cada checkpoint guarda su versión, y los datos de SFT también, de modo que el SFT se niega a mezclar versiones.
+
 ### Ficheros de tokens (`*.bin` + `*.json`)
 
 - **`.bin`**: ids en uint16 contiguos, sin cabecera. Por eso el vocabulario no puede pasar de 65.536 tokens.
@@ -107,6 +114,7 @@ Los especiales se reservaron en la fase 2 para que el vocabulario no cambie entr
 |---|---|
 | `model` | `state_dict` |
 | `config` | `asdict(LeonConfig)`. La arquitectura sale siempre de aquí, nunca de la línea de comandos |
+| `tokenizer` | Versión del tokenizer (`v1`, `v2`). Si falta, el checkpoint es anterior a esta clave y usa `v1` |
 | `step`, `best_val` | Progreso |
 | `optimizer` | Solo en `last.pt`. `best.pt` no lo necesita y ocupa un tercio |
 | `rng_cpu`, `rng_cuda` | Estado de los generadores aleatorios, para que `--resume` continúe con los mismos batches |
@@ -140,6 +148,7 @@ SQLite en `data/chat.db` (`apps/api/store.py`):
 | Decisión | Por qué |
 |---|---|
 | BPE a nivel de byte, propio, 16k tokens | Cubre cualquier texto sin token desconocido. Con 16k, el embedding cuesta 10,5M parámetros; 32k o 50k serían demasiados para un modelo de 56M |
+| Pre-tokenización de Llama 3 (tokenizer v2) | Exportable a GGUF con tokenización idéntica en llama.cpp. Cuesta un 1,8 % de compresión en Wikipedia |
 | Datos en disco como uint16 + `np.memmap` | Miles de millones de tokens con 16 GB de RAM: solo se leen las ventanas de cada batch |
 | Micro-batches de 4.096 tokens + gradient accumulation | Con 16k de vocabulario, los logits de 16k tokens ocupan ~3,5 GiB en fp32. Al pasar de 8 GiB, Windows desborda a RAM sin avisar y la velocidad cae de 10 a 30 veces |
 | `torch.compile` | ×1,5–1,6 de throughput, porque fusiona RMSNorm, RoPE, SwiGLU y la loss |
@@ -153,7 +162,7 @@ SQLite en `data/chat.db` (`apps/api/store.py`):
 
 ## Reglas de dependencias
 
-1. **`leon/` no importa nada** de `phases/`, `apps/` ni `tests/`: solo la biblioteca estándar, numpy, torch y sus propios módulos.
+1. **`leon/` no importa nada** de `phases/`, `apps/` ni `tests/`: solo la biblioteca estándar, numpy, torch, regex (clases Unicode del pre-tokenizer) y sus propios módulos.
 2. **Las fases 2 en adelante** importan de `leon/` y nunca entre ellas. Si dos fases necesitan lo mismo, ese código se gradúa a `leon/`.
 3. **Las fases 0 y 1** no importan de `leon/`: son prototipos autocontenidos y se pueden leer sin conocer el resto.
 4. **`apps/api`** importa de `leon/`. **`apps/web`** solo habla con la API por HTTP.

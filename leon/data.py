@@ -12,13 +12,15 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from leon.paths import DATA_DIR, TOKENIZER_PATH
+from leon.paths import DATA_DIR, DEFAULT_TOKENIZER, TOKENIZERS
 from leon.tokenizer import BPETokenizer
 
 DATASETS = {"wiki": DATA_DIR / "wiki_es", "quijote": DATA_DIR / "quijote"}
 
 
-def load_tokenizer(path: Path = TOKENIZER_PATH) -> BPETokenizer:
+def load_tokenizer(version: str | Path = DEFAULT_TOKENIZER) -> BPETokenizer:
+    """A tokenizer by version ("v1", "v2": see leon.paths.TOKENIZERS) or by file path."""
+    path = TOKENIZERS[version] if isinstance(version, str) else version
     if not path.exists():
         raise SystemExit(f"Missing {path}. Run: python phases/2_tokenizer/train_tokenizer.py")
     return BPETokenizer.load(path)
@@ -77,6 +79,7 @@ class ConversationFile:
         data = np.load(path)
         self.ids, self.learn, self.offsets = data["ids"], data["learn"], data["offsets"]
         self.sources = data["sources"] if "sources" in data else np.array(["unknown"] * len(self))
+        self.tokenizer = str(data["tokenizer"]) if "tokenizer" in data else "v1"  # version of the ids
 
     def __len__(self) -> int:
         return len(self.offsets) - 1

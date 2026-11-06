@@ -9,7 +9,8 @@ Sources (all downloadable without an account; Spanish rows only):
 
 Output in data/sft/:
     {train,val}.jsonl   {"source", "messages": [{"role", "content"}, ...]} per conversation
-    {train,val}.npz     ids (uint16), learn (bool: is this token a training target?), offsets, sources
+    {train,val}.npz     ids (uint16), learn (bool: is this token a training target?), offsets, sources,
+                        and the tokenizer version that produced the ids
     stats.json          conversations and tokens per source, and what was filtered out
 """
 
@@ -27,7 +28,7 @@ import pyarrow.parquet as pq
 
 from leon.chat import encode_chat_for_training
 from leon.data import load_tokenizer
-from leon.paths import DATA_DIR
+from leon.paths import DATA_DIR, DEFAULT_TOKENIZER
 
 SFT_DIR = DATA_DIR / "sft"
 PARQUET_API = "https://huggingface.co/api/datasets/{dataset}/parquet/{config}/{split}"
@@ -162,7 +163,7 @@ def clean(conversation: list[dict]) -> list[dict] | None:
 def main() -> None:
     args = parse_args()
     tokenizer = load_tokenizer()
-    stats = {"sources": {}, "dropped": Counter()}
+    stats = {"tokenizer": DEFAULT_TOKENIZER, "sources": {}, "dropped": Counter()}
     splits = {"train": [], "val": []}
     seen = set()
 
@@ -212,6 +213,7 @@ def main() -> None:
             learn=np.array(learn, dtype=bool),
             offsets=np.array(offsets, dtype=np.int64),
             sources=np.array(sources),
+            tokenizer=np.array(DEFAULT_TOKENIZER),
         )
         stats[split] = {
             "conversations": len(offsets) - 1,

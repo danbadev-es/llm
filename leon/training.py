@@ -18,6 +18,7 @@ import torch
 
 from leon.data import TokenFile
 from leon.model import Leon
+from leon.paths import DEFAULT_TOKENIZER
 
 
 def lr_at(step: int, lr: float, min_lr: float, warmup_steps: int, max_steps: int) -> float:
@@ -66,6 +67,7 @@ def save_checkpoint(
     optimizer: torch.optim.Optimizer | None = None,
     settings: dict | None = None,
     stage: str = "base",
+    tokenizer: str = DEFAULT_TOKENIZER,
 ) -> None:
     """Write a checkpoint atomically: to a temporary file first, then rename over the old one.
 
@@ -73,6 +75,7 @@ def save_checkpoint(
     which matters when the file is the only resume point of a 15-hour run.
     The optimizer (2x the model size) is only needed to resume; best.pt can skip it.
     stage is "base" (pretrained) or "chat" (fine-tuned on conversations): the chat API reads it.
+    tokenizer is the version (leon.paths.TOKENIZERS) the model reads and writes.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint = {
@@ -82,6 +85,7 @@ def save_checkpoint(
         "best_val": best_val,
         "settings": settings or {},
         "stage": stage,
+        "tokenizer": tokenizer,
         "rng_cpu": torch.get_rng_state(),
         "rng_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
     }
