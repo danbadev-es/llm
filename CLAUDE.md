@@ -14,6 +14,9 @@ The pretraining run is controlled with `phases/4_pretrain/control.py` (run from 
 | "continúa" / "reanuda" | `control.py resume` | report the step it resumed from |
 | "¿cómo va?" / "estado" | `control.py status` | summarize progress, loss, ETA and the latest sample |
 | "muéstrame el progreso" / "abre el panel" | `control.py watch` in its own window (`open_watch_window`) | say that closing it does not stop training |
+| "extiende el contexto" / "arranca 2048" | `control.py extend` (only once `leon_0.1` has finished) | report the pid and, at the first eval, the loss on both halves of the context |
+
+`pause`, `resume`, `status` and `watch` act on the latest started stage (`leon_0.1_ctx2048` once `extend` has run); pass `--run leon_0.1` for the base run.
 
 - Never use `start --fresh` (it discards hours of progress) unless the user explicitly asks to start over.
 - Do not launch long GPU runs on your own initiative; the user decides when the laptop is free.

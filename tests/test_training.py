@@ -1,13 +1,17 @@
 """Correctness checks for leon.training. Run: python tests/test_training.py (or pytest)"""
 
+import contextlib
+import json
 import math
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import torch
 
+from leon.data import TokenFile
 from leon.model import Leon, LeonConfig
-from leon.training import bits_per_byte, load_checkpoint, lr_at, save_checkpoint
+from leon.training import bits_per_byte, load_checkpoint, loss_by_position, lr_at, save_checkpoint
 
 CONFIG = LeonConfig(vocab_size=64, block_size=16, n_layer=1, n_head=2, n_kv_head=1, n_embd=16)
 
@@ -24,6 +28,27 @@ def test_lr_schedule() -> None:
 def test_bits_per_byte() -> None:
     assert math.isclose(bits_per_byte(math.log(2), 1.0), 1.0)  # ln 2 nats = 1 bit per 1-byte token
     assert math.isclose(bits_per_byte(4 * math.log(2), 4.0), 1.0)  # 4 bits spread over 4 bytes
+
+
+def test_loss_by_position_splits_the_window_loss_in_two_halves() -> None:
+    """The mean of the two halves is the ordinary loss of the same long-document windows."""
+    torch.manual_seed(0)
+    model = Leon(CONFIG)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        path = Path(tmp) / "docs.bin"
+        docs = [np.random.default_rng(i).integers(1, 64, n) for i, n in enumerate([40, 5, 60])]
+        np.concatenate([np.append(d, 0) for d in docs]).astype(np.uint16).tofile(path)
+        path.with_suffix(".json").write_text(json.dumps({"tokens": 108, "bytes": 108}))
+        data = TokenFile(path)
+        torch.manual_seed(1)
+        near, far = loss_by_position(model, data, 4, CONFIG.block_size, 3, "cpu", contextlib.nullcontext, 0)
+        torch.manual_seed(1)
+        expected = []
+        for _ in range(3):
+            x, y = data.get_batch(4, CONFIG.block_size, "cpu", long_fraction=1.0, boundary_id=0)
+            expected.append(model(x, y)[1].item())
+        assert math.isclose((near + far) / 2, sum(expected) / 3, rel_tol=1e-5)
+        assert model.training  # left in training mode
 
 
 def test_checkpoint_roundtrip_restores_weights_optimizer_and_rng() -> None:

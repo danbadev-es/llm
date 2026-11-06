@@ -20,6 +20,10 @@ from leon.paths import CHECKPOINT_DIR, DATA_DIR
 from leon.training import load_checkpoint, lr_at, save_checkpoint
 
 CHECKPOINT_ROOT = CHECKPOINT_DIR / "5_sft"
+# The base model: the 2048-token context extension if it has been trained, else the 1024 one.
+EXTENDED_BASE = CHECKPOINT_DIR / "4_pretrain" / "leon_0.1_ctx2048" / "best.pt"
+BASE = EXTENDED_BASE if EXTENDED_BASE.exists() else CHECKPOINT_DIR / "4_pretrain" / "leon_0.1" / "best.pt"
+MICRO_BATCH_TOKENS = 4096  # what fits in 8 GB with a 16k vocabulary: 4 blocks of 1024, 2 of 2048
 SFT_DIR = DATA_DIR / "sft"
 # Fixed questions answered at every evaluation, to watch the chat format being learned.
 PROBES = [
@@ -31,11 +35,16 @@ PROBES = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--base", default=str(CHECKPOINT_DIR / "4_pretrain" / "leon_0.1" / "best.pt"))
+    parser.add_argument("--base", default=str(BASE))
     parser.add_argument("--run", default="leon_0.1_chat", help="checkpoints go to checkpoints/5_sft/<run>/")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--upsample", nargs="*", default=["oasst2=3", "aya=2"], help="repeat human-written sources")
-    parser.add_argument("--batch-size", type=int, default=4, help="packed blocks per micro-batch")
+    parser.add_argument(
+        "--multi-turn", type=int, default=3, help="repeat conversations of 2+ exchanges (rare: ~7%% of the data)"
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=0, help=f"packed blocks per micro-batch; 0 = {MICRO_BATCH_TOKENS:,} tokens"
+    )
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4, help="10x below pretraining: adapt, do not forget")
     parser.add_argument("--min-lr", type=float, default=1e-5)
@@ -55,12 +64,16 @@ def parse_args() -> argparse.Namespace:
 def micro_batch_plan(data: ConversationFile, args: argparse.Namespace, block_size: int) -> list[list[list[int]]]:
     """Every micro-batch of the whole run, decided up front from the seed.
 
-    Each epoch shuffles the conversations (human-written sources repeated per --upsample) and
-    packs them into blocks. Because the plan is a pure function of the seed, --resume only needs
-    the step number to continue with exactly the same batches.
+    Each epoch shuffles the conversations and packs them into blocks. Human-written sources are
+    repeated per --upsample and multi-turn conversations --multi-turn times (the larger of the
+    two, not their product, so a multi-turn oasst2 chat is not seen 9 times per epoch).
+    Because the plan is a pure function of the seed, --resume only needs the step number to
+    continue with exactly the same batches.
     """
     repeats = {name: int(times) for name, times in (item.split("=") for item in args.upsample)}
-    pool = np.concatenate([np.repeat(np.flatnonzero(data.sources == s), repeats.get(s, 1)) for s in set(data.sources)])
+    times = np.array([repeats.get(str(s), 1) for s in data.sources])
+    times = np.where(data.exchanges >= 2, np.maximum(times, args.multi_turn), times)
+    pool = np.repeat(np.arange(len(data)), times)
     plan = []
     for epoch in range(args.epochs):
         order = np.random.default_rng(args.seed + epoch).permutation(pool)
@@ -136,6 +149,7 @@ def main() -> None:
         print(f"Base model: {args.base} (step {base['step']}, stage {base.get('stage', 'base')})", flush=True)
 
     block_size = config.block_size
+    args.batch_size = args.batch_size or max(1, MICRO_BATCH_TOKENS // block_size)
     plan = micro_batch_plan(train, args, block_size)
     total_steps = len(plan) // args.grad_accum
     if args.max_steps:

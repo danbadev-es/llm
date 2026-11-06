@@ -5,6 +5,16 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Añadido
+- **Extensión de contexto a 2048** (`control.py extend`, para después del preentrenamiento):
+  - `train.py --init-from --rope-theta --long-fraction`;
+  - ventanas dentro de un solo artículo largo (`TokenFile.long_windows`);
+  - loss por mitades del contexto en cada evaluación (`leon.training.loss_by_position`);
+  - `pause`, `resume`, `status` y `watch` siguen a la última etapa iniciada.
+- **SFT a 2048 tokens**:
+  - las conversaciones largas se recortan a sus primeros intercambios completos;
+  - WildChat (`allenai/WildChat-1M`, en español y sin toxicidad) aporta conversaciones multiturno reales;
+  - las conversaciones de 2 o más intercambios se repiten ×3 por época (`--multi-turn`);
+  - el micro-batch se ajusta solo al contexto del modelo base.
 - **Exportación a GGUF** (`leon/export.py`, `python -m leon.export`) para llama.cpp, LM Studio y Ollama, en F32, F16 o Q8_0.
   - `--verify` lo compara con los binarios oficiales de llama.cpp.
   - Con un checkpoint de la fase 4: tokenización idéntica en 210/210 textos, chat template idéntico, perplejidad a un 0,001 % (F32) y un 0,066 % (Q8_0), y generación *greedy* idéntica.

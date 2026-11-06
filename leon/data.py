@@ -32,20 +32,56 @@ class TokenFile:
     def __init__(self, path: Path) -> None:
         if not path.exists():
             raise SystemExit(f"Missing {path}. Run: python phases/2_tokenizer/encode.py")
+        self.path = path
         self.tokens = np.memmap(path, dtype=np.uint16, mode="r")
         meta = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
         self.bytes_per_token = meta["bytes"] / meta["tokens"]
+        self._long_windows: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
 
     def __len__(self) -> int:
         return len(self.tokens)
 
-    def get_batch(self, batch_size: int, block_size: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    def long_windows(self, block_size: int, boundary_id: int) -> tuple[np.ndarray, np.ndarray]:
+        """Where windows lying entirely inside one long document can start.
+
+        Returns (document starts, cumulative number of valid starts), over the documents that
+        have at least block_size + 1 tokens. Found once, scanning the file in chunks so that a
+        multi-GB file never has to fit in RAM.
+        """
+        key = (block_size, boundary_id)
+        if key not in self._long_windows:
+            ends, chunk = [], 50_000_000
+            for begin in range(0, len(self.tokens), chunk):
+                ends.append(np.flatnonzero(self.tokens[begin : begin + chunk] == boundary_id) + begin)
+            ends = np.concatenate(ends)
+            starts = np.concatenate([[0], ends[:-1] + 1])
+            valid = ends - starts - block_size  # window starts whose block_size + 1 tokens end before the boundary
+            keep = valid > 0
+            if not keep.any():
+                raise ValueError(f"{self.path.name}: no document is longer than {block_size} tokens")
+            self._long_windows[key] = (starts[keep], np.cumsum(valid[keep]))
+        return self._long_windows[key]
+
+    def get_batch(
+        self, batch_size: int, block_size: int, device: str, long_fraction: float = 0.0, boundary_id: int | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Random windows; targets are the inputs shifted one token to the right.
 
         A window takes block_size + 1 tokens, so valid starts are 0 .. len - block_size - 1
-        (torch.randint's upper bound is exclusive).
+        (torch.randint's upper bound is exclusive). Such windows often span several short
+        documents. With long_fraction > 0, that share of the batch is drawn instead from inside
+        single documents longer than the window: the only text that teaches the model to use
+        distant context (context extension, phase 4). All randomness comes from torch, so a
+        resumed run draws the same windows.
         """
-        offsets = torch.randint(len(self.tokens) - block_size, (batch_size,)).tolist()
+        n_long = round(batch_size * long_fraction)
+        offsets = torch.randint(len(self.tokens) - block_size, (batch_size - n_long,)).tolist()
+        if n_long:
+            starts, cumulative = self.long_windows(block_size, boundary_id)
+            picks = torch.randint(int(cumulative[-1]), (n_long,)).numpy()
+            docs = np.searchsorted(cumulative, picks, side="right")
+            before = np.where(docs > 0, cumulative[docs - 1], 0)
+            offsets += (starts[docs] + picks - before).tolist()
         chunks = np.stack([self.tokens[i : i + block_size + 1] for i in offsets]).astype(np.int64)
         chunks = torch.from_numpy(chunks)
         x, y = chunks[:, :-1], chunks[:, 1:]
@@ -80,6 +116,7 @@ class ConversationFile:
         self.ids, self.learn, self.offsets = data["ids"], data["learn"], data["offsets"]
         self.sources = data["sources"] if "sources" in data else np.array(["unknown"] * len(self))
         self.tokenizer = str(data["tokenizer"]) if "tokenizer" in data else "v1"  # version of the ids
+        self.exchanges = data["exchanges"] if "exchanges" in data else np.ones(len(self), dtype=np.int16)
 
     def __len__(self) -> int:
         return len(self.offsets) - 1

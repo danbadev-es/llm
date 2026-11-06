@@ -2,6 +2,7 @@
 
 lr_at              warmup + cosine learning-rate schedule
 estimate_loss      average loss over random batches of each split
+loss_by_position   loss on the first and the second half of long-document windows (context extension)
 bits_per_byte      loss per token -> bits per byte of text (comparable across tokenizers)
 save_checkpoint    atomic save of model, optimizer, RNG state and run settings
 load_checkpoint    the inverse, restoring the RNG so a resumed run continues the same data stream
@@ -52,6 +53,36 @@ def estimate_loss(
         result[name] = losses.mean().item()
     model.train()
     return result
+
+
+@torch.no_grad()
+def loss_by_position(
+    model: Leon,
+    split: TokenFile,
+    batch_size: int,
+    block_size: int,
+    eval_iters: int,
+    device: str,
+    autocast: Callable[[], AbstractContextManager],
+    boundary_id: int,
+) -> tuple[float, float]:
+    """Mean loss at positions 0 .. block_size/2 - 1 and block_size/2 .. block_size - 1.
+
+    Measured on windows inside single long documents, so the second half really has more of the
+    same text behind it. A model that uses its whole context predicts the second half better; a
+    model that is lost past the length it was pretrained on does worse there.
+    """
+    model.eval()
+    half = block_size // 2
+    near, far = torch.zeros(eval_iters), torch.zeros(eval_iters)
+    for k in range(eval_iters):
+        x, y = split.get_batch(batch_size, block_size, device, long_fraction=1.0, boundary_id=boundary_id)
+        with autocast():
+            logits, _ = model(x)
+        losses = torch.nn.functional.cross_entropy(logits.float().transpose(1, 2), y, reduction="none")
+        near[k], far[k] = losses[:, :half].mean().item(), losses[:, half:].mean().item()
+    model.train()
+    return near.mean().item(), far.mean().item()
 
 
 def bits_per_byte(loss: float, bytes_per_token: float) -> float:

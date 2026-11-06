@@ -39,6 +39,33 @@ def test_every_token_can_be_a_target() -> None:
         assert seen == set(range(1, 20)), f"missing targets: {set(range(1, 20)) - seen}"
 
 
+def test_long_windows_stay_inside_one_long_document() -> None:
+    """Documents of 5, 20, 3 and 30 tokens, each closed by the boundary token 0."""
+    torch.manual_seed(0)
+    lengths, block_size = [5, 20, 3, 30], 8
+    tokens, doc_of = [], []
+    for doc, n in enumerate(lengths):
+        tokens += list(range(1, n + 1)) + [0]
+        doc_of += [doc] * (n + 1)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        path = Path(tmp) / "docs.bin"
+        np.array(tokens, dtype=np.uint16).tofile(path)
+        path.with_suffix(".json").write_text(json.dumps({"tokens": len(tokens), "bytes": len(tokens)}))
+        data = TokenFile(path)
+        starts, cumulative = data.long_windows(block_size, boundary_id=0)
+        # Only documents 1 and 3 hold block_size + 1 tokens: 20 - 8 = 12 and 30 - 8 = 22 starts.
+        assert starts.tolist() == [6, 31] and cumulative.tolist() == [12, 34]
+        seen = set()
+        for _ in range(200):
+            x, y = data.get_batch(4, block_size, "cpu", long_fraction=1.0, boundary_id=0)
+            assert not (x == 0).any() and not (y == 0).any(), "a window crossed a document boundary"
+            assert torch.equal(y, x + 1)
+            seen.update(x[:, 0].tolist())
+        assert seen == set(range(1, 13)) | set(range(1, 23))  # every valid start is reachable
+        x, _ = data.get_batch(4, block_size, "cpu", long_fraction=0.5, boundary_id=0)
+        assert x.shape == (4, block_size)
+
+
 def test_conversations_are_packed_whole_and_only_answers_are_targets() -> None:
     # Three conversations of 4, 3 and 5 tokens; in each, the last two tokens are "answers".
     lengths = [4, 3, 5]

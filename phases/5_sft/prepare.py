@@ -5,7 +5,11 @@ Sources (all downloadable without an account; Spanish rows only):
     aya      CohereLabs/aya_dataset             human instruction / answer pairs     Apache-2.0
     dolly    databricks-dolly-15k (curated es)  translated instruction / answer      CC BY-SA 3.0
     alpaca   bertin-project/alpaca-spanish      translated instruction / answer      CC BY 4.0 (*)
-(*) Alpaca was generated with an OpenAI model: fine for study, not for a commercial product.
+    wildchat allenai/WildChat-1M                real multi-turn chats with ChatGPT   ODC-BY (*)
+(*) Generated with OpenAI models: fine for study, not for a commercial product.
+
+Conversations longer than the context are cut to their first turns that fit (whole exchanges),
+so long multi-turn chats still teach how to follow a conversation.
 
 Output in data/sft/:
     {train,val}.jsonl   {"source", "messages": [{"role", "content"}, ...]} per conversation
@@ -24,6 +28,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from leon.chat import encode_chat_for_training
@@ -37,16 +42,22 @@ SOURCES = {
     "aya": [("CohereLabs/aya_dataset", "default", "train")],
     "dolly": [("argilla/databricks-dolly-15k-curated-multilingual", "default", "es")],
     "alpaca": [("bertin-project/alpaca-spanish", "default", "train")],
+    "wildchat": [("allenai/WildChat-1M", "default", "train")],
 }
 SYSTEM_PROMPT = "Eres Leon, un asistente que responde en español de forma clara y breve."
 # The assistant in oasst2 introduces itself by its original name; Leon should not.
 IDENTITY = re.compile(r"\b(Open[ -]?Assistant|LAION)\b", re.IGNORECASE)
+# WildChat answers that would teach Leon to be someone else, or to answer with code: skipped.
+FOREIGN_ANSWER = re.compile(
+    r"openai|chatgpt|gpt-[34]|modelo de lenguaje|soy una (ia|inteligencia artificial)|como (una )?ia\b|```",
+    re.IGNORECASE,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sources", nargs="+", default=list(SOURCES), choices=list(SOURCES))
-    parser.add_argument("--max-tokens", type=int, default=1024, help="drop conversations longer than the context")
+    parser.add_argument("--max-tokens", type=int, default=2048, help="the context: longer chats keep their first turns")
     parser.add_argument("--system-fraction", type=float, default=0.3, help="share given a generic system prompt")
     parser.add_argument("--max-paths-per-tree", type=int, default=3, help="oasst2: conversations taken per tree")
     return parser.parse_args()
@@ -140,6 +151,18 @@ def load_source(source: str, paths: list[Path], args: argparse.Namespace) -> lis
             )
             for r in rows
         ]
+    if source == "wildchat":
+        conversations = []
+        for path in paths:  # one file at a time: the dataset is 3.4 GB
+            table = pq.read_table(path, columns=["conversation", "language", "toxic"])
+            # Filter in Arrow first: only the ~2% Spanish rows become Python objects (RAM stays low).
+            spanish = pc.and_(pc.equal(table["language"], "Spanish"), pc.invert(table["toxic"]))
+            for row in table.filter(spanish).to_pylist():
+                turns = [{"role": m["role"], "content": m["content"]} for m in row["conversation"]]
+                if any(m["role"] == "assistant" and FOREIGN_ANSWER.search(m["content"] or "") for m in turns):
+                    continue
+                conversations.append(turns)
+        return conversations
     rows = read_rows(paths, ["instruction", "input", "output"])  # alpaca
     return [
         pair(f"{r['instruction']}\n\n{r['input']}" if (r["input"] or "").strip() else r["instruction"], r["output"])
@@ -160,6 +183,17 @@ def clean(conversation: list[dict]) -> list[dict] | None:
     return messages
 
 
+def fit(tokenizer, messages: list[dict], max_tokens: int) -> tuple[list[dict], list[int], list[bool]] | None:
+    """The conversation, or its longest beginning made of whole exchanges, that fits in max_tokens."""
+    for end in range(len(messages), 0, -1):
+        if messages[end - 1]["role"] != "assistant":
+            continue  # a training conversation always ends with an answer
+        tokens, targets = encode_chat_for_training(tokenizer, messages[:end])
+        if len(tokens) <= max_tokens:
+            return messages[:end], tokens, targets
+    return None
+
+
 def main() -> None:
     args = parse_args()
     tokenizer = load_tokenizer()
@@ -176,14 +210,22 @@ def main() -> None:
             if messages is None:
                 stats["dropped"]["empty turn"] += 1
                 continue
-            key = " ".join((messages[0]["content"] + " ⟂ " + messages[1]["content"][:300]).lower().split())
-            if key in seen:
+            roles = [m["role"] for m in messages]
+            if roles[0] != "user" or roles[-1] != "assistant" or any(a == b for a, b in zip(roles, roles[1:])):
+                stats["dropped"]["turns out of order"] += 1
+                continue
+            # Duplicates: the whole conversation. Branches of one oasst2 tree share their beginning
+            # but continue differently, so they are different conversations.
+            whole = " ".join(" ⟂ ".join(m["content"] for m in messages).lower().split())
+            if whole in seen:
                 stats["dropped"]["duplicate"] += 1
                 continue
-            seen.add(key)
+            seen.add(whole)
+            # Split: the first exchange, so every branch of a tree lands in the same split (a shared
+            # beginning in train and val would let validation measure memorized text).
+            key = " ".join((messages[0]["content"] + " ⟂ " + messages[1]["content"][:300]).lower().split())
             if stable_fraction("system:" + key) < args.system_fraction:
                 messages = [{"role": "system", "content": SYSTEM_PROMPT}, *messages]
-            # Split by conversation (never by token), so validation measures unseen conversations.
             split = "val" if stable_fraction("split:" + key) < 0.05 else "train"
             splits[split].append({"source": source, "messages": messages})
             kept[split] += 1
@@ -194,13 +236,20 @@ def main() -> None:
         )
 
     for split, items in splits.items():
-        ids, learn, offsets, sources, lengths = [], [], [0], [], Counter()
+        ids, learn, offsets, sources, lengths, exchanges = [], [], [0], [], Counter(), Counter()
+        turns = []  # exchanges (user question + answer) of each conversation
         with open(SFT_DIR / f"{split}.jsonl", "w", encoding="utf-8") as jsonl:
             for item in items:
-                tokens, targets = encode_chat_for_training(tokenizer, item["messages"])
-                if len(tokens) > args.max_tokens:
-                    stats["dropped"][f"longer than {args.max_tokens} tokens"] += 1
+                fitted = fit(tokenizer, item["messages"], args.max_tokens)
+                if fitted is None:
+                    stats["dropped"][f"first exchange longer than {args.max_tokens} tokens"] += 1
                     continue
+                messages, tokens, targets = fitted
+                if len(messages) < len(item["messages"]):
+                    stats["dropped"]["later turns cut to fit the context"] += 1
+                item = {**item, "messages": messages}
+                turns.append(sum(m["role"] == "user" for m in messages))
+                exchanges[min(turns[-1], 5)] += 1
                 jsonl.write(json.dumps(item, ensure_ascii=False) + "\n")
                 ids += tokens
                 learn += targets
@@ -213,6 +262,7 @@ def main() -> None:
             learn=np.array(learn, dtype=bool),
             offsets=np.array(offsets, dtype=np.int64),
             sources=np.array(sources),
+            exchanges=np.array(turns, dtype=np.int16),
             tokenizer=np.array(DEFAULT_TOKENIZER),
         )
         stats[split] = {
@@ -220,8 +270,10 @@ def main() -> None:
             "tokens": len(ids),
             "learned_tokens": int(np.sum(learn)),
             "tokens_by_source": dict(lengths),
+            "conversations_by_exchanges": {f"{k}+" if k == 5 else str(k): exchanges[k] for k in sorted(exchanges)},
         }
         print(f"{split}: {len(offsets) - 1:,} conversations, {len(ids):,} tokens ({int(np.sum(learn)):,} learned)")
+        print(f"  by number of exchanges: {stats[split]['conversations_by_exchanges']}")
 
     stats["dropped"] = dict(stats["dropped"])
     (SFT_DIR / "stats.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False), encoding="utf-8")

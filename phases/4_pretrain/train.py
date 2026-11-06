@@ -5,6 +5,12 @@ directly. It can be stopped at any moment without losing work:
   - `control.py pause` (or creating the PAUSE file) or Ctrl+C: finishes the current step,
     saves last.pt and exits;
   - `--resume` continues from last.pt with the same batches an uninterrupted run would see.
+
+Context extension (after the 1024-token pretraining, before phase 5): `control.py extend`
+continues the base model with `--init-from`, a 2048-token context, a larger RoPE base
+(`--rope-theta`) and half of each batch drawn from inside long articles (`--long-fraction`).
+Every eval then also reports the loss on the first and the second half of long-article
+windows: the second half must end up lower, which shows the model uses the extra context.
 """
 
 import argparse
@@ -18,7 +24,7 @@ from leon.data import DATASETS, load_splits, load_tokenizer
 from leon.model import Leon, LeonConfig
 from leon.paths import CHECKPOINT_DIR, DEFAULT_TOKENIZER
 from leon.run import RunFiles, keep_system_awake
-from leon.training import bits_per_byte, estimate_loss, load_checkpoint, lr_at, save_checkpoint
+from leon.training import bits_per_byte, estimate_loss, load_checkpoint, loss_by_position, lr_at, save_checkpoint
 
 CHECKPOINT_ROOT = CHECKPOINT_DIR / "4_pretrain"
 FIXED_PROMPT = "En un lugar de la Mancha"
@@ -36,6 +42,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--n-embd", type=int, default=640)
     parser.add_argument("--block-size", type=int, default=1024)
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--rope-theta", type=float, default=10_000.0, help="RoPE base; larger for longer contexts")
+    # Context extension: continue a trained model with a longer context
+    parser.add_argument(
+        "--init-from",
+        default=None,
+        help="start from this checkpoint's weights and architecture (only --block-size, "
+        "--rope-theta and --dropout change)",
+    )
+    parser.add_argument(
+        "--long-fraction",
+        type=float,
+        default=0.0,
+        help="share of each batch drawn from inside documents longer than the context",
+    )
     # Optimization: 4 x 1024 = 4,096 tokens per micro-batch, x32 = 131,072 tokens per step
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--grad-accum", type=int, default=32)
@@ -60,7 +80,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 # follows the same schedule and data no matter what the command line says.
 RUN_SETTINGS = (
     "dataset", "batch_size", "grad_accum", "max_steps", "lr", "min_lr", "warmup_steps",
-    "weight_decay", "grad_clip", "eval_interval", "eval_iters", "seed",
+    "weight_decay", "grad_clip", "eval_interval", "eval_iters", "seed", "long_fraction", "init_from",
 )  # fmt: skip
 
 
@@ -78,8 +98,9 @@ def main() -> None:
                 f"{run.last} was trained with tokenizer {saved.get('tokenizer', 'v1')}, but the data now uses "
                 f"{DEFAULT_TOKENIZER}: it cannot be resumed. Start over with `control.py start --fresh`."
             )
+        defaults = parse_args([])  # for settings added after a run was started
         for key in RUN_SETTINGS:
-            setattr(args, key, saved["settings"][key])
+            setattr(args, key, saved["settings"].get(key, getattr(defaults, key)))
     run.dir.mkdir(parents=True, exist_ok=True)
     run.pid.write_text(str(os.getpid()))
     run.clear_pause()  # a stale request from an earlier run must not stop this one
@@ -109,10 +130,29 @@ def main() -> None:
         n_kv_head=args.n_kv_head,
         n_embd=args.n_embd,
         dropout=args.dropout,
+        rope_theta=args.rope_theta,
     )
+    base = None
+    if args.init_from and not args.resume:
+        base = torch.load(args.init_from, map_location="cpu", weights_only=True, mmap=True)
+        if base.get("tokenizer", "v1") != DEFAULT_TOKENIZER:
+            raise SystemExit(
+                f"{args.init_from} uses tokenizer {base.get('tokenizer', 'v1')}, the data {DEFAULT_TOKENIZER}."
+            )
+        overrides = {"block_size": args.block_size, "rope_theta": args.rope_theta, "dropout": args.dropout}
+        config = LeonConfig(**{**base["config"], **overrides})
     if args.resume:  # the architecture always comes from the checkpoint
         config = LeonConfig(**torch.load(run.last, map_location="cpu", weights_only=True, mmap=True)["config"])
     model = Leon(config).to(device)
+    if base is not None:
+        model.load_state_dict(base["model"])  # RoPE tables are not saved: they follow the new config
+        print(
+            f"Initialized from {args.init_from} (step {base['step']}, context {base['config']['block_size']}, "
+            f"RoPE base {base['config']['rope_theta']:g}) -> context {config.block_size}, "
+            f"RoPE base {config.rope_theta:g}",
+            flush=True,
+        )
+        del base
     optimizer = model.configure_optimizer(args.lr, args.weight_decay, (0.9, 0.95), device)
 
     start_step, best_val, last_val = 0, float("inf"), None
@@ -144,6 +184,7 @@ def main() -> None:
     train_time, steps_timed, tok_per_s = 0.0, 0, 0.0
     loss_sum = torch.zeros((), device=device)  # summed on the GPU, read only for status
     sample = ""
+    halves = None  # val loss on the first / second half of long-article windows (context extension)
 
     def report(state: str, step: int) -> None:
         remaining = (args.max_steps - step) * tokens_per_step
@@ -162,6 +203,8 @@ def main() -> None:
             eta_hours=round(remaining / tok_per_s / 3600, 2) if tok_per_s else None,
             session_hours=round((time.perf_counter() - session_start) / 3600, 2),
             sample=sample,
+            val_loss_first_half=halves[0] if halves else None,
+            val_loss_second_half=halves[1] if halves else None,
             pid=os.getpid(),
         )
 
@@ -189,6 +232,17 @@ def main() -> None:
                     line += f" | quijote bits/byte {quijote_bpb:.3f}"
                 line += f" | lr {schedule(step):.2e} | {tok_per_s:,.0f} tok/s"
                 print(line, flush=True)
+                if args.long_fraction > 0:
+                    near, far = loss_by_position(
+                        model, splits["val"], args.batch_size, config.block_size, args.eval_iters, device, autocast,
+                        tokenizer.eot_id,
+                    )  # fmt: skip
+                    halves = (round(near, 4), round(far, 4))
+                    half = config.block_size // 2
+                    print(
+                        f"  long articles: loss at positions 0-{half - 1} {near:.4f}, {half}+ {far:.4f}",
+                        flush=True,
+                    )
                 if losses["val"] < best_val:
                     best_val = losses["val"]
                     save_checkpoint(run.best, model, step, best_val, settings=settings)
@@ -210,7 +264,9 @@ def main() -> None:
             for group in optimizer.param_groups:
                 group["lr"] = schedule(step)
             for _ in range(args.grad_accum):
-                x, y = splits["train"].get_batch(args.batch_size, config.block_size, device)
+                x, y = splits["train"].get_batch(
+                    args.batch_size, config.block_size, device, args.long_fraction, tokenizer.eot_id
+                )
                 with autocast():
                     _, loss = train_model(x, y)
                 (loss / args.grad_accum).backward()

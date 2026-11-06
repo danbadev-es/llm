@@ -14,7 +14,7 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 1: GPT mínimo | ✅ | 1,627 bits/char · SDPA ×1,76 |
 | 2: tokenizer BPE | ✅ | 16.384 tokens · 4,19 bytes/token en Wikipedia |
 | 3: arquitectura moderna | ✅ | 1,175 bits/byte (32M, 31 min) · tamaño de Leon 0.1 fijado |
-| 4: preentrenamiento | ⏳ listo para arrancar | 56M, contexto 1024, ~2B tokens, ~13–14 h · `control.py start / pause / resume / status` |
+| 4: preentrenamiento | ⏳ entrenando | 56M, contexto 1024, ~2B tokens, ~15 h · después, extensión a 2048 (~1,5 h) · `control.py start / pause / resume / status / extend` |
 | 5–7: SFT, agente, DPO | — | |
 
 ## Inicio rápido

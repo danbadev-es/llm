@@ -6,6 +6,10 @@
     python phases/4_pretrain/control.py resume     continue exactly where it paused
     python phases/4_pretrain/control.py status     progress, losses, ETA, GPU temperature
     python phases/4_pretrain/control.py watch      live dashboard that refreshes itself
+    python phases/4_pretrain/control.py extend     after `start` finishes: extend the context to 2048
+
+pause / resume / status / watch act on the latest stage that has started (leon_0.1, then
+leon_0.1_ctx2048 once `extend` has run); `--run` picks another one.
 
 The trainer runs as an independent process with no window: it keeps going if this terminal,
 VS Code or the chat session is closed. `start` and `resume` also open a `watch` window
@@ -32,6 +36,23 @@ TRAIN_SCRIPT = PHASE_DIR / "train.py"
 RUNS_DIR = CHECKPOINT_DIR / "4_pretrain"
 WIKI_SHARDS = range(13)
 FULL_WIKI_TOKENS = 1_000_000_000  # below this, data/wiki_es holds only part of Wikipedia
+BASE_RUN = "leon_0.1"
+EXTEND_RUN = "leon_0.1_ctx2048"
+# Context extension 1024 -> 2048: 1,150 steps x 131,072 tokens = 151M tokens (~1.5 h of GPU).
+# The base model's weights, a 4x larger RoPE base so that 2048 positions rotate like ~1024 did
+# before, half of every batch from inside articles longer than 2048 tokens (137k of them), and a
+# short schedule that starts below the base run's peak learning rate so it refines, not relearns.
+EXTEND_ARGS = [
+    "--init-from", str(RUNS_DIR / BASE_RUN / "best.pt"),
+    "--block-size", "2048", "--rope-theta", "50000", "--long-fraction", "0.5",
+    "--batch-size", "2", "--grad-accum", "32", "--max-steps", "1150",
+    "--lr", "3e-4", "--min-lr", "3e-5", "--warmup-steps", "100", "--eval-interval", "100",
+]  # fmt: skip
+
+
+def latest_run() -> str:
+    """The run that pause / resume / status / watch act on by default: the latest started stage."""
+    return EXTEND_RUN if (RUNS_DIR / EXTEND_RUN / "status.json").exists() else BASE_RUN
 
 
 def launch(run: RunFiles, train_args: list[str]) -> None:
@@ -154,6 +175,21 @@ def cmd_resume(args: argparse.Namespace) -> None:
         open_watch_window(args.run)
 
 
+def cmd_extend(args: argparse.Namespace) -> None:
+    """Start the context extension from the finished base run."""
+    base = RunFiles(RUNS_DIR / BASE_RUN)
+    if base.running_pid() or base.read_status().get("state") != "finished":
+        raise SystemExit(f"The base run '{BASE_RUN}' has not finished yet: the extension starts from its best.pt.")
+    run = RunFiles(RUNS_DIR / args.run)
+    if pid := run.running_pid():
+        raise SystemExit(f"Already running (pid {pid}). See: control.py status")
+    if run.last.exists() and not args.fresh:
+        raise SystemExit(f"{run.last} already exists. Continue it with `control.py resume`.")
+    launch(run, ["--run", args.run, *(["--overwrite"] if args.fresh else []), *EXTEND_ARGS, *args.train_args])
+    if not args.no_watch:
+        open_watch_window(args.run)
+
+
 def cmd_pause(args: argparse.Namespace) -> None:
     run = RunFiles(RUNS_DIR / args.run)
     pid = run.running_pid()
@@ -195,6 +231,11 @@ def cmd_status(args: argparse.Namespace) -> None:
             print(f"  val loss   {status['val_loss']:.4f} = {status['val_bits_per_byte']:.3f} bits/byte")
         if status.get("best_val") is not None:
             print(f"  best val   {status['best_val']:.4f}")
+        if status.get("val_loss_second_half") is not None:
+            print(
+                f"  long text  loss {status['val_loss_first_half']:.4f} on the first half of the context, "
+                f"{status['val_loss_second_half']:.4f} on the second"
+            )
         if status.get("tok_per_s"):
             print(f"  speed      {status['tok_per_s']:,} tok/s")
         if status.get("eta_hours") is not None and state == "running":
@@ -250,6 +291,11 @@ def dashboard(run: RunFiles, run_name: str) -> str:
             losses.append(f"best {status['best_val']:.3f}")
         if losses:
             lines.append(f" Loss        {' · '.join(losses)}")
+        if status.get("val_loss_second_half") is not None:
+            lines.append(
+                f" Long text   first half {status['val_loss_first_half']:.3f} · "
+                f"second half {status['val_loss_second_half']:.3f} (lower = uses the longer context)"
+            )
         if status.get("tok_per_s"):
             lines.append(f" Speed       {status['tok_per_s']:,} tok/s")
         if pid and status.get("eta_hours") is not None:
@@ -259,7 +305,7 @@ def dashboard(run: RunFiles, run_name: str) -> str:
             lines.append(f" GPU         {gpu_summary()}")
         lines.append(f" Updated     {status['updated_at']}")
         if status.get("sample"):
-            lines += ["", " Latest sample (renewed at every evaluation, every 250 steps):"]
+            lines += ["", " Latest sample (renewed at every evaluation):"]
             lines += textwrap.wrap(
                 status["sample"].replace("\n", " ⏎ "),
                 width - 4,
@@ -312,18 +358,22 @@ def main() -> None:
         ("resume", cmd_resume, "continue a paused run"),
         ("status", cmd_status, "show progress"),
         ("watch", cmd_watch, "live dashboard (closing it does not stop training)"),
+        ("extend", cmd_extend, "extend the context to 2048 once the base run has finished"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.set_defaults(fn=fn)
-        command.add_argument("--run", default="leon_0.1")
-    sub.choices["start"].add_argument("--fresh", action="store_true", help="discard an existing run's progress")
-    for name in ("start", "resume"):
+        default = {"start": BASE_RUN, "prepare": BASE_RUN, "extend": EXTEND_RUN}.get(name)
+        command.add_argument("--run", default=default, help="default: " + (default or "the latest started stage"))
+    for name in ("start", "extend"):
+        sub.choices[name].add_argument("--fresh", action="store_true", help="discard an existing run's progress")
+    for name in ("start", "resume", "extend"):
         sub.choices[name].add_argument("--no-watch", action="store_true", help="do not open the dashboard window")
     sub.choices["watch"].add_argument("--interval", type=float, default=5, help="seconds between refreshes")
     sub.choices["pause"].add_argument("--no-wait", action="store_true", help="return without waiting for the save")
     sub.choices["pause"].add_argument("--timeout", type=int, default=180)
     sub.choices["status"].add_argument("--lines", type=int, default=5, help="log lines to show")
     args = parser.parse_args(argv)
+    args.run = args.run or latest_run()
     args.train_args = train_args
     args.fn(args)
 
