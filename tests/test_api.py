@@ -15,6 +15,7 @@ from leon.training import save_checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "api"))  # apps are not a package
 import app as api_app  # noqa: E402
 import engine  # noqa: E402
+from store import ConversationStore  # noqa: E402
 
 PORT = 8000
 HOST = {"Host": f"127.0.0.1:{PORT}"}
@@ -29,7 +30,8 @@ def make_client(tmp: Path):
     save_checkpoint(tmp / "3_test" / "tiny" / "best.pt", Leon(config), step=1, best_val=0.0)
     engine.CHECKPOINT_DIR = tmp
     engine.load_tokenizer = lambda: tokenizer
-    return api_app.create_app(engine.Engine("cpu"), PORT).test_client()
+    store = ConversationStore(tmp / "chat.db")
+    return api_app.create_app(engine.Engine("cpu"), store, PORT).test_client()
 
 
 def events(response) -> list[dict]:
@@ -38,7 +40,7 @@ def events(response) -> list[dict]:
 
 def test_api() -> None:
     original_dir, original_loader = engine.CHECKPOINT_DIR, engine.load_tokenizer
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         try:
             client = make_client(Path(tmp))
 
@@ -92,6 +94,69 @@ def test_api() -> None:
             engine.CHECKPOINT_DIR, engine.load_tokenizer = original_dir, original_loader
 
 
+def test_conversation_history() -> None:
+    original_dir, original_loader = engine.CHECKPOINT_DIR, engine.load_tokenizer
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        try:
+            client = make_client(Path(tmp))
+            post = lambda url, body: client.post(url, json=body, headers=HOST)  # noqa: E731
+
+            created = post("/api/conversations", {"mode": "chat", "model": MODEL, "title": "  hola\n qué   tal  "})
+            assert created.status_code == 201
+            chat = created.get_json()
+            assert chat["title"] == "hola qué tal"  # whitespace collapsed into a one-line title
+            long_title = {"mode": "complete", "model": MODEL, "title": "x" * 200}
+            completion = post("/api/conversations", long_title).get_json()
+            assert len(completion["title"]) == 60 and completion["title"].endswith("…")
+
+            # A chat exchange saves the user's turn and the answer with its stats.
+            body = {"model": MODEL, "mode": "chat", "messages": [{"role": "user", "content": "hola"}]}
+            done = events(post("/api/generate", {**body, "conversation_id": chat["id"], "max_new_tokens": 4}))[-1]
+            saved = client.get(f"/api/conversations/{chat['id']}", headers=HOST).get_json()["messages"]
+            assert [m["role"] for m in saved] == ["user", "assistant"] and saved[0]["content"] == "hola"
+            assert saved[1]["stats"]["tokens"] == done["tokens"]
+
+            # A completion saves one answer that remembers the prompt it continued.
+            body = {"model": MODEL, "mode": "complete", "prompt": "hola", "max_new_tokens": 3}
+            events(post("/api/generate", {**body, "conversation_id": completion["id"]}))
+            saved = client.get(f"/api/conversations/{completion['id']}", headers=HOST).get_json()["messages"]
+            assert len(saved) == 1 and saved[0]["prompt"] == "hola"
+
+            # Stopping mid-answer (the browser closes the connection) still saves what was written.
+            stop_me = post("/api/conversations", {"mode": "complete", "model": MODEL}).get_json()
+            response = client.post(
+                "/api/generate",
+                json={**body, "max_new_tokens": 16, "conversation_id": stop_me["id"]},
+                headers=HOST,
+                buffered=False,
+            )
+            next(iter(response.response))  # read the first event, then hang up
+            response.close()
+            saved = client.get(f"/api/conversations/{stop_me['id']}", headers=HOST).get_json()["messages"]
+            assert len(saved) == 1 and saved[0]["stats"] == {"stopped": "user"}
+            client.delete(f"/api/conversations/{stop_me['id']}", headers=HOST)
+
+            # The most recently used conversation comes first.
+            listed = client.get("/api/conversations", headers=HOST).get_json()["conversations"]
+            assert [c["id"] for c in listed] == [completion["id"], chat["id"]]
+
+            # Saving into a missing conversation, or one of the other mode, is refused up front.
+            assert post("/api/generate", {**body, "conversation_id": "nope"}).status_code == 400
+            assert post("/api/generate", {**body, "conversation_id": chat["id"]}).status_code == 400
+
+            # Rename and delete.
+            url = f"/api/conversations/{chat['id']}"
+            assert client.patch(url, json={"title": "Saludos"}, headers=HOST).get_json()["title"] == "Saludos"
+            assert client.patch(url, json={"title": " "}, headers=HOST).status_code == 400
+            assert client.delete(url, headers=HOST).status_code == 204
+            assert client.get(url, headers=HOST).status_code == 404
+            assert client.delete(url, headers=HOST).status_code == 404
+            assert post("/api/conversations", {"mode": "x", "model": MODEL}).status_code == 400
+        finally:
+            engine.CHECKPOINT_DIR, engine.load_tokenizer = original_dir, original_loader
+
+
 if __name__ == "__main__":
     test_api()
-    print("ok  test_api")
+    test_conversation_history()
+    print("ok  test_api, test_conversation_history")

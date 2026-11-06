@@ -117,7 +117,7 @@ Verificación:
 
 ```powershell
 python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-pytest                        # 33 tests: tokenizer, model, data, training, run control, chat template, API, architecture
+pytest                        # 34 tests: tokenizer, model, data, training, run control, chat template, API, architecture
 ```
 
 Calidad del código (antes de cada commit):

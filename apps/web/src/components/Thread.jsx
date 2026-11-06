@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { formatStats } from "../format.js";
 
 const SUGGESTIONS = {
   complete: ["En un lugar de la Mancha", "La ciudad de Madrid es", "El sistema solar está formado por", "La Segunda Guerra Mundial"],
@@ -20,6 +21,7 @@ function Welcome({ mode, onSuggestion }) {
 }
 
 function Message({ message }) {
+  const meta = formatStats(message.stats);
   return (
     <div className={`msg ${message.role}`}>
       <div>
@@ -28,7 +30,7 @@ function Message({ message }) {
           <span className={message.streaming ? "cursor" : ""}>{message.content}</span>
           {message.error && <span className="error">Error: {message.error}</span>}
         </div>
-        {message.meta && <div className="meta">{message.meta}</div>}
+        {meta && <div className="meta">{meta}</div>}
       </div>
     </div>
   );

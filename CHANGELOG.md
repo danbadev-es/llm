@@ -5,6 +5,13 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Añadido
+- **Chat con historial**:
+  - Conversaciones guardadas en SQLite (`apps/api/store.py`, `data/chat.db`), con API REST `/api/conversations`.
+  - El lateral muestra el historial agrupado por fecha, con renombrar y eliminar.
+  - Los ajustes pasan a un diálogo, y el modelo y el modo a la cabecera.
+  - Panel lateral en móvil.
+  - La web recuerda los ajustes y el último modelo.
+- La API recarga un checkpoint si el archivo cambia, así que se puede seguir en el chat un modelo que aún está entrenando.
 - **Fase 4, lista para arrancar**: `phases/4_pretrain/control.py` con `prepare`, `start`, `pause`, `resume` y `status`.
   - El entrenamiento corre como proceso independiente, con pausa limpia y `status.json`.
   - Una ejecución pausada y reanudada da **pesos idénticos** a una sin interrupciones.

@@ -4,13 +4,16 @@ Interfaz al estilo de ChatGPT para hablar con cualquier checkpoint de Leon, desd
 
 ```
 apps/
-├── api/            Flask: modelo, streaming y (en la fase 6) el bucle de herramientas
+├── api/            Flask: modelo, streaming, historial y (en la fase 6) el bucle de herramientas
 │   ├── app.py      rutas HTTP
-│   └── engine.py   lógica del modelo, sin dependencias web: checkpoints, prompts, generación
+│   ├── engine.py   lógica del modelo, sin dependencias web: checkpoints, prompts, generación
+│   └── store.py    historial de conversaciones en SQLite (data/chat.db)
 └── web/            React + Vite: la interfaz
-    ├── src/App.jsx              estado de la conversación y envío
-    ├── src/api.js               cliente de la API (lee el streaming)
-    └── src/components/          Sidebar, Thread, Composer
+    ├── src/App.jsx              estado: modelos, historial, conversación actual, ajustes, envío
+    ├── src/api.js               cliente de la API (REST + lectura del streaming)
+    ├── src/format.js            estadísticas de cada respuesta y grupos del historial por fecha
+    └── src/components/          Sidebar (historial), Header (modelo y modo), Thread, Composer,
+                                 SettingsDialog, Modal
 ```
 
 ## Uso
@@ -42,10 +45,25 @@ cd apps/web; npm run dev               # http://localhost:5173
 
 Vite reenvía las peticiones `/api` a Flask. Si la API está en otro puerto: `$env:LEON_API="http://127.0.0.1:8765"; npm run dev`.
 
+## La interfaz
+
+- **Historial** en el lateral, agrupado en Hoy, Ayer, Últimos 7 días, Últimos 30 días y Anteriores, como en ChatGPT o Claude.
+  - Cada conversación tiene un menú **⋯** con **Renombrar** (en línea: Enter guarda, Esc cancela) y **Eliminar** (pide confirmación).
+  - Las conversaciones en modo Completar llevan el icono ✎.
+- **Guardado automático**: el primer mensaje crea la conversación, con ese mensaje como título, y el servidor guarda cada intercambio. Una respuesta detenida con ■ se guarda con lo escrito hasta ese momento.
+- **Cabecera**: el modelo y el modo. El modo pertenece a la conversación, así que cambiarlo empieza una nueva.
+- **⚙ Ajustes** abre un diálogo con las instrucciones del sistema, la temperatura, el top-k y los tokens máximos. Los ajustes y el último modelo usado se recuerdan en el navegador (`localStorage`).
+- **Móvil**: el lateral se abre como panel con ☰.
+
 ## API
 
 | Ruta | Respuesta |
 |---|---|
+| `GET /api/conversations` | `{"conversations": [{"id", "title", "mode", "model", "created_at", "updated_at"}]}`, la más reciente primero |
+| `POST /api/conversations` | Crea una: `{"mode", "model", "title"}`. El título se reduce a una línea de ≤ 60 caracteres |
+| `GET /api/conversations/<id>` | La conversación con sus `messages`: `{role, content, prompt?, stats?, error?}` |
+| `PATCH /api/conversations/<id>` | Renombrar: `{"title"}` |
+| `DELETE /api/conversations/<id>` | Borra la conversación y sus mensajes (204) |
 | `GET /api/models` | `{"models": [{"name", "stage", "params", "context", "step"}], "device"}`. Lee solo los metadatos de cada `best.pt` (`torch.load(..., mmap=True)`) |
 | `POST /api/generate` | *Server-Sent Events*: un `data: {"text": "..."}` por trozo y un `data: {"done": true, "tokens", "tok_per_s", "prompt_tokens", "stopped"}` final. Si algo falla a mitad: `data: {"error": "..."}` |
 
@@ -58,6 +76,8 @@ Cuerpo de `/api/generate`:
 {"model": "...", "mode": "chat", "system": "Sé breve.",
  "messages": [{"role": "user", "content": "Hola"}]}
 ```
+
+Con `"conversation_id"` en el cuerpo de `/api/generate`, el servidor guarda el intercambio en esa conversación: en modo chat, el último mensaje del usuario y la respuesta; en modo completar, la respuesta con el `prompt` que continuó. Las estadísticas finales se guardan como `stats`, y una respuesta detenida como `{"stopped": "user"}`. El historial vive en `data/chat.db`, que no se versiona (`--db` cambia la ruta).
 
 Todo se valida antes de empezar a generar: tipos y rangos de `temperature` (0–5), `top_k` (entero ≥ 0) y `max_new_tokens` (entero ≥ 1), roles de los mensajes, `system`... Una petición mal formada recibe un 400 con `{"error": "..."}`, nunca un error a mitad del streaming. `tests/test_api.py` lo comprueba.
 

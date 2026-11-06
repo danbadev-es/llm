@@ -1,124 +1,178 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { groupByDate } from "../format.js";
+import Modal from "./Modal.jsx";
 
-const MOBILE_QUERY = "(max-width: 760px)";
+function ConversationItem({ conversation, active, onSelect, onRename, onAskDelete }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(conversation.title);
+  const itemRef = useRef(null);
 
-function Slider({ id, label, value, display, min, max, step, onChange }) {
+  // Close the options menu on any click outside this item.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e) => !itemRef.current?.contains(e.target) && setMenuOpen(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+
+  function finishRename(save) {
+    setEditing(false);
+    const clean = title.trim();
+    if (save && clean && clean !== conversation.title) onRename(conversation.id, clean);
+    else setTitle(conversation.title);
+  }
+
   return (
-    <div className="field">
-      <div className="row">
-        <label htmlFor={id}>{label}</label>
-        <span className="value">{display}</span>
-      </div>
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    </div>
+    <li ref={itemRef} className={`conversation ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""}`}>
+      {editing ? (
+        <input
+          className="rename-input"
+          value={title}
+          autoFocus
+          aria-label="Nuevo nombre"
+          onChange={(e) => setTitle(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onBlur={() => finishRename(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") finishRename(true);
+            if (e.key === "Escape") finishRename(false);
+          }}
+        />
+      ) : (
+        <button
+          className="conversation-title"
+          title={conversation.title}
+          aria-current={active ? "page" : undefined}
+          onClick={() => onSelect(conversation.id)}
+        >
+          {conversation.mode === "complete" && (
+            <span className="mode-tag" title="Modo completar">
+              ✎
+            </span>
+          )}
+          {conversation.title}
+        </button>
+      )}
+      {!editing && (
+        <button
+          className="icon-button options"
+          aria-label={`Opciones de «${conversation.title}»`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          ⋯
+        </button>
+      )}
+      {menuOpen && (
+        <div className="menu" role="menu">
+          <button
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              setTitle(conversation.title);
+              setEditing(true);
+            }}
+          >
+            ✎ Renombrar
+          </button>
+          <button
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              setMenuOpen(false);
+              onAskDelete(conversation);
+            }}
+          >
+            🗑 Eliminar
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 
 export default function Sidebar({
-  models, model, loadError, onModelChange, mode, onModeChange, settings, onSettingsChange, onNewChat,
+  open,
+  onClose,
+  conversations,
+  currentId,
+  onSelect,
+  onNewChat,
+  onRename,
+  onDelete,
+  onOpenSettings,
 }) {
-  // On phones the settings start folded; on desktop they are always visible.
-  const [settingsOpen, setSettingsOpen] = useState(() => !window.matchMedia(MOBILE_QUERY).matches);
-  useEffect(() => {
-    const media = window.matchMedia(MOBILE_QUERY);
-    const sync = () => !media.matches && setSettingsOpen(true);
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
-
-  const set = (key) => (value) => onSettingsChange({ ...settings, [key]: value });
+  const [toDelete, setToDelete] = useState(null);
+  const groups = groupByDate(conversations);
 
   return (
-    <aside>
-      <div className="brand">
-        <h1>Leon</h1>
-        <span>0.1 · local</span>
-      </div>
-      <button className="new-chat" onClick={onNewChat}>＋ Nueva conversación</button>
+    <>
+      <div className={`backdrop ${open ? "visible" : ""}`} onClick={onClose} />
+      <aside className={open ? "open" : ""}>
+        <div className="brand">
+          <h1>Leon</h1>
+          <span>0.1 · local</span>
+          <button className="icon-button close-sidebar" aria-label="Cerrar menú" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <button className="new-chat" onClick={onNewChat}>
+          ＋ Nueva conversación
+        </button>
 
-      <div className="field">
-        <label htmlFor="model">Modelo</label>
-        <select id="model" value={model?.name ?? ""} onChange={(e) => onModelChange(e.target.value)}>
-          {models.map((m) => (
-            <option key={m.name} value={m.name}>
-              {m.name}{m.stage === "base" ? " (base)" : ""}
-            </option>
+        <nav className="history" aria-label="Historial de conversaciones">
+          {groups.length === 0 && <p className="empty">Tus conversaciones aparecerán aquí.</p>}
+          {groups.map((group) => (
+            <section key={group.label}>
+              <h3>{group.label}</h3>
+              <ul>
+                {group.items.map((conversation) => (
+                  <ConversationItem
+                    key={conversation.id}
+                    conversation={conversation}
+                    active={conversation.id === currentId}
+                    onSelect={onSelect}
+                    onRename={onRename}
+                    onAskDelete={setToDelete}
+                  />
+                ))}
+              </ul>
+            </section>
           ))}
-        </select>
-        <div className="model-info">
-          {loadError ||
-            (model
-              ? `${(model.params / 1e6).toFixed(1)}M parámetros · contexto ${model.context} · paso ${model.step}`
-              : models.length === 0 && "No hay checkpoints. Entrena uno con phases/3_modern/train.py.")}
-        </div>
-      </div>
+        </nav>
 
-      <div className="field">
-        <span className="label" id="mode-label">Modo</span>
-        <div className="segmented" role="group" aria-labelledby="mode-label">
-          {[["complete", "Completar"], ["chat", "Chat"]].map(([value, text]) => (
-            <button
-              key={value}
-              type="button"
-              className={mode === value ? "active" : ""}
-              aria-pressed={mode === value}
-              onClick={() => onModeChange(value)}
-            >
-              {text}
-            </button>
-          ))}
-        </div>
-      </div>
-      {mode === "chat" && model?.stage === "base" && (
-        <div className="notice">
-          Este es un modelo <b>base</b>: solo sabe continuar texto. El modo Chat le envía el formato{" "}
-          <code>&lt;|user|&gt;…&lt;|assistant|&gt;</code>, que aprenderá en la fase 5. Hasta entonces, las respuestas
-          no tendrán sentido.
-        </div>
-      )}
+        <button className="settings-button" onClick={onOpenSettings}>
+          ⚙ Ajustes
+        </button>
+      </aside>
 
-      <details open={settingsOpen} onToggle={(e) => setSettingsOpen(e.currentTarget.open)}>
-        <summary>Ajustes</summary>
-        <div className="settings-body">
-          {mode === "chat" && (
-            <div className="field">
-              <label htmlFor="system">Instrucciones del sistema</label>
-              <textarea
-                id="system"
-                value={settings.system}
-                placeholder="Eres Leon, un asistente que responde en español de forma breve."
-                onChange={(e) => set("system")(e.target.value)}
-              />
-            </div>
-          )}
-          <Slider
-            id="temperature"
-            label="Temperatura" value={settings.temperature} min={0} max={1.5} step={0.05}
-            display={settings.temperature === 0 ? "0 (greedy)" : settings.temperature.toFixed(2)}
-            onChange={set("temperature")}
-          />
-          <Slider
-            id="top-k"
-            label="Top-k" value={settings.topK} min={0} max={200} step={5}
-            display={settings.topK === 0 ? "sin límite" : settings.topK}
-            onChange={set("topK")}
-          />
-          <Slider
-            id="max-tokens"
-            label="Tokens máximos" value={settings.maxTokens} min={8} max={model?.max_new_tokens ?? 512} step={8}
-            display={settings.maxTokens}
-            onChange={set("maxTokens")}
-          />
+      <Modal
+        open={toDelete !== null}
+        onClose={() => setToDelete(null)}
+        title="¿Eliminar conversación?"
+        className="small"
+      >
+        <p className="modal-text">
+          Se borrará <b>{toDelete?.title}</b> con todos sus mensajes. No se puede deshacer.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="button" onClick={() => setToDelete(null)}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="button danger"
+            onClick={() => {
+              onDelete(toDelete.id);
+              setToDelete(null);
+            }}
+          >
+            Eliminar
+          </button>
         </div>
-      </details>
-    </aside>
+      </Modal>
+    </>
   );
 }

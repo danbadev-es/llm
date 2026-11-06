@@ -21,7 +21,7 @@ Los datos no están en el repositorio. Para reconstruirlos, sigue en orden la se
 ```powershell
 ruff check .            # lint
 ruff format .           # formato
-pytest                  # 33 tests, CPU, ~3 s; no necesitan data/ ni checkpoints/
+pytest                  # 34 tests, CPU, ~3 s; no necesitan data/ ni checkpoints/
 python phases/1_gpt/test_model.py
 cd apps/web; npm run build; cd ../..    # si cambió la web
 ```

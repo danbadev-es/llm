@@ -125,7 +125,15 @@ Lo define `leon.chat.encode_chat`, y es la única implementación: la fase 5 lo 
 
 ### API HTTP
 
-`GET /api/models` y `POST /api/generate` (Server-Sent Events). Ver [`apps/README.md`](apps/README.md).
+`GET /api/models`, `POST /api/generate` (Server-Sent Events) y el CRUD de `/api/conversations`. Ver [`apps/README.md`](apps/README.md).
+
+### Historial de conversaciones
+
+SQLite en `data/chat.db` (`apps/api/store.py`):
+
+- **Tablas**: `conversations` (id, título, modo, modelo, fechas) y `messages` (rol, contenido, `prompt` en las respuestas del modo completar, `stats` en JSON, `error`).
+- **Borrado**: en cascada; al eliminar una conversación se eliminan sus mensajes.
+- **Conexiones**: una por petición, porque Flask atiende con varios hilos y SQLite no comparte conexiones entre hilos.
 
 ## Decisiones de diseño
 
@@ -139,6 +147,7 @@ Lo define `leon.chat.encode_chat`, y es la única implementación: la fase 5 lo 
 | Checkpoints atómicos con RNG | Los entrenamientos de horas se reparten en sesiones: un corte no debe perder el progreso y el resume debe ser idéntico a no haber parado (`tests/test_training.py`) |
 | Tokens especiales solo por id | `encode` ignora los especiales por defecto y el chat template los inserta por id. Así el texto de un usuario o de una web no puede inyectar turnos ni llamadas a herramientas |
 | API de un modelo y una petición a la vez | Herramienta local de un solo usuario: un `threading.Lock` basta y mantiene la VRAM bajo control |
+| Historial en SQLite, guardado por el servidor | Biblioteca estándar y un solo archivo. Guarda el servidor, no el navegador, así que una respuesta detenida o fallida queda registrada igual, y la base de datos es la única fuente de verdad |
 | API solo local | Escucha en `127.0.0.1` y valida la cabecera `Host`, contra el *DNS rebinding* |
 | Web separada (React) de la API (Flask) | Se desarrollan por separado (`npm run dev` con proxy). En uso normal, Flask sirve la web compilada desde el mismo puerto |
 
