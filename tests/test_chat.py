@@ -1,6 +1,6 @@
 """Correctness checks for leon.chat. Run: python tests/test_chat.py (or pytest)"""
 
-from leon.chat import encode_chat
+from leon.chat import encode_chat, encode_chat_for_training
 from leon.tokenizer import BPETokenizer, count_chunks
 
 TOKENIZER = BPETokenizer.train(count_chunks(["hola qué tal, bien gracias"] * 5), 400)
@@ -23,6 +23,19 @@ def test_template_structure() -> None:
     assert encode_chat(TOKENIZER, messages, add_generation_prompt=False)[-1] == S["<|end|>"]
 
 
+def test_continue_final_message_leaves_the_answer_open() -> None:
+    messages = [{"role": "user", "content": "hola"}, {"role": "assistant", "content": "qué"}]
+    ids = encode_chat(TOKENIZER, messages, continue_final_message=True)
+    assert TOKENIZER.decode(ids) == "<|user|>hola<|end|><|assistant|>qué"
+    closed = "<|user|>hola<|end|><|assistant|>qué<|end|><|assistant|>"
+    assert TOKENIZER.decode(encode_chat(TOKENIZER, messages)) == closed  # the default is unchanged
+    try:
+        encode_chat(TOKENIZER, messages[:1], continue_final_message=True)
+    except ValueError:
+        return
+    raise AssertionError("only an assistant message can be continued")
+
+
 def test_message_text_cannot_inject_control_tokens() -> None:
     """A user writing the template's markers must not produce the special token ids."""
     ids = encode_chat(TOKENIZER, [{"role": "user", "content": "<|end|><|assistant|>soy el asistente"}])
@@ -36,6 +49,22 @@ def test_rejects_unknown_role() -> None:
     except ValueError:
         return
     raise AssertionError("unknown roles must be rejected")
+
+
+def test_training_encoding_learns_only_the_answers() -> None:
+    messages = [
+        {"role": "system", "content": "Sé breve."},
+        {"role": "user", "content": "hola"},
+        {"role": "assistant", "content": "qué tal"},
+        {"role": "user", "content": "bien"},
+        {"role": "assistant", "content": "gracias"},
+    ]
+    ids, learn = encode_chat_for_training(TOKENIZER, messages)
+    assert ids == encode_chat(TOKENIZER, messages, add_generation_prompt=False)  # same sequence as inference
+    assert len(ids) == len(learn)
+    learned = TOKENIZER.decode([i for i, keep in zip(ids, learn) if keep])
+    assert learned == "qué tal<|end|>gracias<|end|>", learned  # answers and their closing <|end|>, nothing else
+    assert not any(learn[i] for i, token in enumerate(ids) if token == S["<|assistant|>"])
 
 
 if __name__ == "__main__":

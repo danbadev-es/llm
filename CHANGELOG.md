@@ -5,6 +5,25 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Añadido
+- **API compatible con Anthropic** (`apps/api/anthropic_api.py`):
+  - `/v1/messages` (con streaming, prefill y `stop_sequences`), `/v1/messages/count_tokens`, `/v1/complete` (Text Completions) y `/v1/models`.
+  - El SDK oficial `anthropic` habla con Leon cambiando solo `base_url` (`tests/test_anthropic_api.py`).
+  - `top_p` (nucleus) en `Leon.stream`.
+- **Web rediseñada**:
+  - fluidez (pintado por frame, auto-scroll inteligente, "Ir al final", esqueletos de carga, transiciones);
+  - acciones Copiar, Regenerar y Editar, avisos y reintento de errores;
+  - atajos de teclado, accesibilidad completa y temas claro y oscuro.
+  - Usa la API `/v1`.
+- `DELETE /api/conversations/<id>/messages?from=N`: regenerar o editar reemplaza el último intercambio también en el historial guardado.
+- **Fase 5 (en preparación)**:
+  - `phases/5_sft/prepare.py`: 74k conversaciones en español de oasst2, Aya, Dolly y Alpaca.
+  - `phases/5_sft/train.py`: SFT con loss masking y *packing*.
+  - `leon.chat.encode_chat_for_training` y `leon.data.ConversationFile`.
+  - Checkpoints con `stage`.
+
+### Eliminado
+- La API antigua `/api/models` y `/api/generate`, sustituida por `/v1`.
+
 - `control.py watch`: panel en vivo del preentrenamiento, con progreso, pérdidas, velocidad, hora estimada de fin, GPU, última muestra y log. `start` y `resume` lo abren en su propia ventana.
 
 ### Corregido
