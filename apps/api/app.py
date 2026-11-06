@@ -11,6 +11,8 @@
     DELETE /api/conversations/<id>      delete it and its messages
     DELETE /api/conversations/<id>/messages?from=N
                                         drop messages N, N+1, ... (regenerate or edit the last turn)
+    POST   /api/context                 how the next request fills the context (the web's meter):
+                                        {"model", "mode", "system", "messages", "draft", "max_tokens"}
     GET    /                            the React app, once built (apps/web/dist)
 
 Generation is saved in a conversation by sending the X-Leon-Conversation header to /v1.
@@ -98,6 +100,30 @@ def create_app(engine: Engine, store: ConversationStore, port: int) -> Flask:
         if not store.truncate(conversation_id, keep):
             return jsonify({"error": "not found"}), 404
         return jsonify(store.get(conversation_id))
+
+    @app.post("/api/context")
+    def context_usage():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or body.get("model") not in find_checkpoints():
+            return bad_request("needs the 'model' of an existing checkpoint")
+        if body.get("mode", "chat") not in MODES:
+            return bad_request(f"'mode' must be {' or '.join(MODES)}")
+        system, draft, messages = body.get("system", ""), body.get("draft", ""), body.get("messages", [])
+        if not isinstance(system, str) or not isinstance(draft, str):
+            return bad_request("'system' and 'draft' must be strings")
+        valid = isinstance(messages, list) and all(
+            isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)
+            for m in messages
+        )
+        if not valid:
+            return bad_request("'messages' must be a list of {role: user | assistant, content: string}")
+        max_tokens = body.get("max_tokens", 256)
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
+            return bad_request("'max_tokens' must be a positive integer")
+        usage = engine.context_usage(
+            body["model"], body.get("mode", "chat"), system.strip(), messages, draft.strip(), max_tokens
+        )
+        return jsonify(usage)
 
     @app.route("/api/<path:_>", methods=["GET", "POST", "PATCH", "DELETE"])
     def unknown_api(_):

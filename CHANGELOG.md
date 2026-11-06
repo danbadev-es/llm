@@ -5,6 +5,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Añadido
+- **Indicador de contexto en la web**: anillo junto al botón de enviar, con el desglose al pasar el ratón (sistema, conversación, mensaje nuevo, reservado para la respuesta, libre) y aviso de lo que quedará fuera. Endpoint `POST /api/context`.
 - **Extensión de contexto a 2048** (`control.py extend`, para después del preentrenamiento):
   - `train.py --init-from --rope-theta --long-fraction`;
   - ventanas dentro de un solo artículo largo (`TokenFile.long_windows`);

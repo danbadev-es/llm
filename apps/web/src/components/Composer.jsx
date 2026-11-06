@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import Icon from "./Icon.jsx";
 
 const MAX_HEIGHT = 220; // px; past this the text area scrolls instead of growing
@@ -17,9 +17,11 @@ export function useAutoGrow(ref, value, maxHeight = MAX_HEIGHT) {
 export const isSendKey = (e) => e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing;
 
 // The input at the bottom. inputRef is owned by App, so global shortcuts can focus it.
-export default function Composer({ inputRef, mode, busy, disabled, onSend, onStop }) {
+// onTextChange lets App measure the draft (the context meter); meter is rendered by the send button.
+export default function Composer({ inputRef, mode, busy, disabled, onSend, onStop, onTextChange, meter }) {
   const [text, setText] = useState("");
   useAutoGrow(inputRef, text);
+  useEffect(() => onTextChange?.(text), [text, onTextChange]);
   const empty = text.trim() === "";
 
   function submit() {
@@ -49,6 +51,7 @@ export default function Composer({ inputRef, mode, busy, disabled, onSend, onSto
             if (!busy && !empty) submit(); // while generating, Enter never doubles as "stop"
           }}
         />
+        {meter}
         <button
           className={`send-button${busy ? " stop" : ""}`}
           type="submit"

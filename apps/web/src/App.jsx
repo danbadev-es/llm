@@ -10,12 +10,14 @@ import {
   truncateConversation,
 } from "./api.js";
 import Composer from "./components/Composer.jsx";
+import ContextMeter from "./components/ContextMeter.jsx";
 import Header from "./components/Header.jsx";
 import Icon from "./components/Icon.jsx";
 import SettingsDialog from "./components/SettingsDialog.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Thread from "./components/Thread.jsx";
 import Toasts from "./components/Toasts.jsx";
+import useContextUsage from "./hooks/useContextUsage.js";
 import useMediaQuery from "./hooks/useMediaQuery.js";
 import useToasts from "./hooks/useToasts.js";
 import { loadMode, loadModelName, loadSettings, saveMode, saveModelName, saveSettings } from "./preferences.js";
@@ -41,6 +43,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState(""); // the composer's text, for the context meter
   // viewKey changes when another conversation replaces the one on screen; pinKey also on every send.
   // The thread re-pins its scroll to the bottom whenever pinKey changes.
   const [viewKey, setViewKey] = useState(0);
@@ -90,6 +93,15 @@ export default function App() {
 
   const model = models.find((m) => m.name === modelName);
   const canSend = Boolean(model) && !loadingConversation;
+  const contextUsage = useContextUsage({
+    model,
+    mode,
+    system: settings.system,
+    maxTokens: model ? Math.min(settings.maxTokens, model.max_new_tokens) : 0,
+    messages,
+    draft: draft.trim(),
+    paused: busy || loadingConversation,
+  });
 
   // Focus the composer, except on touch screens, where it would pop the keyboard up uninvited.
   function focusComposer({ force = false } = {}) {
@@ -397,7 +409,16 @@ export default function App() {
           onRegenerate={() => redoLast()}
           onEdit={redoLast}
         />
-        <Composer inputRef={composerRef} mode={mode} busy={busy} disabled={!canSend} onSend={send} onStop={stop} />
+        <Composer
+          inputRef={composerRef}
+          mode={mode}
+          busy={busy}
+          disabled={!canSend}
+          onSend={send}
+          onStop={stop}
+          onTextChange={setDraft}
+          meter={<ContextMeter usage={contextUsage} mode={mode} />}
+        />
       </main>
       <SettingsDialog
         open={settingsOpen}

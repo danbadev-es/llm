@@ -105,7 +105,37 @@ def test_conversation_history() -> None:
     with_client(check)
 
 
+def test_context_usage() -> None:
+    """The meter's breakdown always adds up, and reports the old turns that no longer fit."""
+
+    def check(client) -> None:
+        def usage(**body):
+            response = client.post("/api/context", json={"model": MODEL, "max_tokens": 8, **body}, headers=HOST)
+            assert response.status_code == 200, response.get_json()
+            data = response.get_json()
+            assert data["system"] + data["history"] + data["draft"] == data["used"]
+            assert data["used"] + data["free"] + data["reserved"] == data["context"] == 32
+            assert data["reserved"] == 8 and data["free"] >= 0
+            return data
+
+        empty = usage(messages=[])
+        assert empty["used"] == 0 and empty["dropped_messages"] == 0
+        short = usage(system="hola", messages=[{"role": "user", "content": "hola"}], draft="qué tal")
+        assert short["system"] > 0 and short["history"] > 0 and short["draft"] > 0 and short["dropped_tokens"] == 0
+        turns = [{"role": r, "content": "muy bien gracias"} for r in ("user", "assistant") * 4]
+        long = usage(system="hola", messages=turns, draft="qué tal")
+        assert long["dropped_messages"] > 0 and long["used"] + long["dropped_tokens"] == long["total"]
+        assert long["used"] <= 24
+        cut = usage(mode="complete", draft="hola qué tal " * 20)
+        assert cut["draft"] == cut["used"] == 24 and cut["dropped_tokens"] == cut["total"] - 24
+        for bad in ({"model": "nope"}, {"messages": [{"role": "system", "content": "x"}]}, {"max_tokens": 0}):
+            assert client.post("/api/context", json={"model": MODEL, **bad}, headers=HOST).status_code == 400
+
+    with_client(check)
+
+
 if __name__ == "__main__":
     test_safety_rules()
     test_conversation_history()
-    print("ok  test_safety_rules, test_conversation_history")
+    test_context_usage()
+    print("ok  test_safety_rules, test_conversation_history, test_context_usage")

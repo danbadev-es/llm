@@ -93,6 +93,7 @@ El servidor habla el mismo protocolo que la API de Claude (`apps/api/anthropic_a
 | `PATCH /api/conversations/<id>` | Renombrar: `{"title"}` |
 | `DELETE /api/conversations/<id>` | Borra la conversación y sus mensajes (204) |
 | `DELETE /api/conversations/<id>/messages?from=N` | Borra los mensajes desde el N: al regenerar o editar la última respuesta, el intento anterior no queda guardado |
+| `POST /api/context` | Cómo llenaría el contexto la próxima petición: `{"model", "mode", "system", "messages", "draft", "max_tokens"}` → `{context, reserved, system, history, draft, used, free, total, dropped_messages, dropped_tokens}`. Lo usa el indicador de contexto de la web |
 
 Con el SDK de Python (`pip install anthropic`, ya incluido en el extra `dev`):
 
@@ -145,6 +146,11 @@ La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messag
 - **Detener**: el botón ■ aborta el `fetch`. Flask detecta la desconexión, cierra el generador y la GPU queda libre.
 - **Un modelo, una petición**: el motor mantiene un checkpoint en memoria y un candado (`threading.Lock`), así que las peticiones simultáneas esperan su turno.
 - **Contexto lleno**: si la conversación no cabe, se descartan **turnos completos** empezando por los más antiguos, conservando siempre las instrucciones de sistema y el último mensaje. La interfaz indica cuántos turnos se omitieron.
+  - **Sin compactación**: Claude y Claude Code resumen la conversación antigua cuando se acercan al límite (*compact*/*autocompact*). Leon no lo hace porque un modelo de 56M resumiría mal y perdería justo los datos importantes. Descartar turnos es predecible, y los mensajes siguen guardados en el historial.
+- **Indicador de contexto**: un anillo junto al botón de enviar muestra qué parte del contexto ocupará el próximo mensaje. Se actualiza mientras escribes y pasa a ámbar al 70 % y a rojo al 90 %.
+  - Al pasar el ratón (o al tocarlo en el móvil) muestra el desglose: instrucciones del sistema, conversación, mensaje nuevo, espacio reservado para la respuesta y espacio libre.
+  - Si algo no cabe, dice qué dejará de ver Leon.
+  - Lo calcula `POST /api/context` con la misma aritmética que la generación.
 - **Fin de la respuesta**: en modo chat, cualquier token de control (`<|end|>`, pero también `<|user|>` o `<|endoftext|>`) termina la respuesta.
 - **Secuencias de parada**: el texto que podría ser el principio de una `stop_sequence` se retiene hasta que el siguiente token lo decide, así que nunca se envía un trozo de la secuencia.
 - **Muestreo**: `temperature` 0 es *greedy*; si no, `top_k` y `top_p` (*nucleus*: el conjunto más pequeño de tokens más probables que suma al menos `top_p`) recortan las opciones antes de sortear.

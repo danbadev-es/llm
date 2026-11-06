@@ -120,6 +120,45 @@ class Engine:
                 return ids[-budget:], dropped  # only a single huge message gets cut from its start
         raise AssertionError("unreachable: the request parser guarantees at least one message")
 
+    def context_usage(self, model: str, mode: str, system: str, messages: list[dict], draft: str, max_new: int) -> dict:
+        """How the next request would fill the model's context, for the meter in the web app.
+
+        The same arithmetic as stream(): the answer reserves min(max_new, context / 2) tokens and
+        the prompt gets the rest. In chat mode the prompt is the system instructions, the history
+        and the draft as a new user message; whole turns that do not fit are dropped, oldest
+        first (there is no summarizing "compaction": a small model would summarize badly).
+        In complete mode only the draft is sent, and its beginning is cut if it is too long.
+        """
+        meta = torch.load(find_checkpoints()[model], map_location="cpu", weights_only=True, mmap=True)
+        context = meta["config"]["block_size"]
+        reserved = min(max_new, context // 2)
+        budget = context - reserved
+        tokenizer = self.tokenizer_for(model)
+        usage = {"context": context, "reserved": reserved, "system": 0, "history": 0, "draft": 0}
+        if mode == "complete":
+            total = len(tokenizer.encode(draft))
+            usage["draft"] = min(total, budget)
+            return {**usage, "used": usage["draft"], "free": budget - usage["draft"], "total": total,
+                    "dropped_messages": 0, "dropped_tokens": total - usage["draft"]}  # fmt: skip
+        system_turn = [{"role": "system", "content": system}] if system else []
+        turns = messages + ([{"role": "user", "content": draft}] if draft else [])
+        if system_turn:
+            usage["system"] = len(encode_chat(tokenizer, system_turn, add_generation_prompt=False))
+        if not turns:
+            return {**usage, "used": usage["system"], "free": budget - usage["system"], "total": usage["system"],
+                    "dropped_messages": 0, "dropped_tokens": 0}  # fmt: skip
+        total = len(encode_chat(tokenizer, system_turn + turns))
+        ids, dropped = self._chat_prompt(tokenizer, {"system": system, "messages": turns, "prefill": False}, budget)
+        if draft:  # the new user turn plus the <|assistant|> that opens the answer
+            usage["draft"] = len(encode_chat(tokenizer, turns[-1:]))
+        else:
+            usage["draft"] = 1 if messages else 0  # just the <|assistant|> marker
+        usage["draft"] = min(usage["draft"], len(ids))
+        usage["system"] = min(usage["system"], len(ids) - usage["draft"])
+        usage["history"] = len(ids) - usage["draft"] - usage["system"]
+        return {**usage, "used": len(ids), "free": budget - len(ids), "total": total,
+                "dropped_messages": dropped, "dropped_tokens": total - len(ids)}  # fmt: skip
+
     def count_tokens(self, params: dict) -> int:
         """Prompt length in tokens, before any old turn is dropped to make it fit."""
         tokenizer = self.tokenizer_for(params["model"])

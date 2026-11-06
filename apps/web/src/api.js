@@ -131,3 +131,13 @@ export async function streamGenerate(body, { signal, onEvent }) {
     }
   }
 }
+
+// POST /api/context → how the next request would fill the model's context (the composer's meter):
+// {context, reserved, system, history, draft, used, free, total, dropped_messages, dropped_tokens}.
+export const fetchContextUsage = (body, signal) =>
+  fetch("/api/context", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  }).then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))));
