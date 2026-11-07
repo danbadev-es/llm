@@ -59,7 +59,7 @@ flowchart TD
 | `model.py` | `Leon` y `LeonConfig`: RMSNorm, RoPE, atención con GQA, SwiGLU, `KVCache`, `stream`/`generate` | torch |
 | `data.py` | `TokenFile` (`.bin` con `np.memmap`, `get_batch`), `load_splits`, `load_tokenizer` | `paths`, `tokenizer` |
 | `training.py` | `lr_at`, `estimate_loss`, `bits_per_byte`, `save_checkpoint`/`load_checkpoint` | `model`, `data` |
-| `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake` | — |
+| `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake`. Lo común a los `control.py` de todas las fases: `launch` (proceso sin ventana), `wait_for_pause` y el panel en vivo (`dashboard`, `watch`), que muestra los campos que tenga el `status.json` de cada fase | — |
 | `export.py` | GGUF para llama.cpp, LM Studio y Ollama; `--verify` lo compara con los binarios de llama.cpp | `model`, `data`; extra opcional `gguf`, `jinja2` |
 | `chat.py` | `encode_chat`: el chat template | `tokenizer` |
 
@@ -189,6 +189,6 @@ SQLite en `data/chat.db` (`apps/api/store.py`):
 
 | Fase | Dónde | Qué reutiliza |
 |---|---|---|
-| 4: preentrenamiento | **Implementada**: `phases/4_pretrain/control.py` (prepare, start, pause, resume, status) lanza `train.py` como proceso independiente. Pausar y continuar da exactamente los mismos pesos que entrenar sin parar | `leon.data`, `leon.model`, `leon.training`, `leon.run` |
+| 4: preentrenamiento | **Implementada**: `phases/4_pretrain/control.py` (prepare, start, pause, resume, status, watch, extend) lanza `train.py` como proceso independiente. Pausar y continuar da exactamente los mismos pesos que entrenar sin parar | `leon.data`, `leon.model`, `leon.training`, `leon.run` |
 | 5: SFT conversacional | `phases/5_sft/`: dataset de diálogos codificado con `encode_chat` y targets a `-100` en los turnos no del asistente (`ignore_index` de la loss). Checkpoints con `stage="chat"` | `leon.chat`, `leon.training`; la loss de `Leon.forward` ya ignora los targets `-100` |
 | 6: tool calling | `apps/api/engine.py`: detectar `<\|tool_call\|>…<\|/tool_call\|>`, ejecutar la herramienta, insertar `<\|tool_result\|>…<\|/tool_result\|>` y continuar generando. Las herramientas irán en un módulo propio de `leon/` o de `apps/api` | tokens especiales ya reservados |

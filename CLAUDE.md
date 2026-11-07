@@ -2,25 +2,26 @@
 
 Read README.md and ARCHITECTURE.md first. Answer the user in Spanish; code, comments, identifiers and commit messages in English.
 
-## Phase 4 training: what the user's words mean
+## Training runs: what the user's words mean
 
-The pretraining run is controlled with `phases/4_pretrain/control.py` (run from the repo root with `.venv\Scripts\python.exe`):
+Every long training run has a `control.py` in its phase folder (run from the repo root with `.venv\Scripts\python.exe`). The words act on **the phase in progress**: phase 5 (`phases/5_sft/control.py`) now that phase 4 has finished; phase 4 (`phases/4_pretrain/control.py`) if the user names it.
 
 | The user says | Run | Then |
 |---|---|---|
 | "prepara los datos" (phase 4) | `control.py prepare` (CPU + network, 20–40 min: run it in the background) | report tokens per split from `data/wiki_es/*.json` |
-| "arranca" / "empieza" | `control.py start` | report the pid and the first status |
+| "arranca" / "empieza" / "lanza" | `control.py start` | report the pid and the first status |
 | "pausa" / "para" | `control.py pause` | report the step it saved at |
 | "continúa" / "reanuda" | `control.py resume` | report the step it resumed from |
-| "¿cómo va?" / "estado" | `control.py status` | summarize progress, loss, ETA and the latest sample |
-| "muéstrame el progreso" / "abre el panel" | `control.py watch` in its own window (`open_watch_window`) | say that closing it does not stop training |
-| "extiende el contexto" / "arranca 2048" | `control.py extend` (only once `leon_0.1` has finished) | report the pid and, at the first eval, the loss on both halves of the context |
+| "¿cómo va?" / "estado" | `control.py status` | summarize progress, loss, ETA and the latest sample or answers |
+| "muéstrame el progreso" / "abre el panel" | `control.py watch` in its own window (`leon.run.open_watch_window`) | say that closing it does not stop training |
+| "extiende el contexto" / "arranca 2048" | phase 4 `control.py extend` (only once `leon_0.1` has finished) | report the pid and, at the first eval, the loss on both halves of the context |
 
-`pause`, `resume`, `status` and `watch` act on the latest started stage (`leon_0.1_ctx2048` once `extend` has run); pass `--run leon_0.1` for the base run.
+Phase 4: `pause`, `resume`, `status` and `watch` act on the latest started stage (`leon_0.1_ctx2048` once `extend` has run); pass `--run leon_0.1` for the base run. Phase 5's run is `leon_0.1_chat`.
 
 - Never use `start --fresh` (it discards hours of progress) unless the user explicitly asks to start over.
 - Do not launch long GPU runs on your own initiative; the user decides when the laptop is free.
 - The trainer is a windowless background process: it survives the end of the chat session. Check it with `status`, never by killing it. `start`/`resume` open a `watch` dashboard window; closing it is harmless.
+- New phases with long runs (6–8) follow the same pattern: the trainer writes `status.json` through `leon.run.RunFiles`, and its `control.py` reuses `leon.run` (`launch`, `wait_for_pause`, `dashboard`, `watch`), so every phase has the same window.
 
 ## Quality checks before every commit
 

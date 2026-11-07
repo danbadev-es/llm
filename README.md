@@ -80,14 +80,15 @@ llm/
 │   ├── data.py         #   token files with np.memmap             (built in phase 3)
 │   ├── chat.py         #   chat template                          (phase 5 and apps/api)
 │   ├── training.py     #   LR schedule, eval, bits/byte, atomic checkpoints with RNG state
-│   ├── run.py          #   control files of a background run: pause flag, status, pid
+│   ├── run.py          #   background runs: pause flag, status, pid, and the live dashboard of every phase
 │   └── paths.py        #   where data/ and checkpoints/ live
 ├── phases/             # the course: one chapter per phase (scripts, README, walkthrough notebook)
 │   ├── 0_bigram/
 │   ├── 1_gpt/
 │   ├── 2_tokenizer/
 │   ├── 3_modern/
-│   └── 4_pretrain/     # control.py: start / pause / resume / status   (5_sft … 8_reasoning to come)
+│   ├── 4_pretrain/     # control.py: start / pause / resume / status / watch / extend
+│   └── 5_sft/          # control.py: start / pause / resume / status / watch   (6_agent … 8_reasoning to come)
 ├── apps/
 │   ├── api/            # Flask: model serving with streaming
 │   └── web/            # React + Vite: ChatGPT-style interface

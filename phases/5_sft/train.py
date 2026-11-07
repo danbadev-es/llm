@@ -2,11 +2,13 @@
 
 Starts from a base checkpoint (phase 4) and trains it on the chat template, learning only the
 assistant's answers. The result is saved with stage="chat", which the chat app recognizes.
-Stop at any moment with Ctrl+C (saves last.pt); continue with --resume.
+Usually run through phases/5_sft/control.py (start / pause / resume / status / watch). Run by
+hand, Ctrl+C also saves last.pt; continue with --resume.
 """
 
 import argparse
 import math
+import os
 import time
 from dataclasses import asdict, replace
 
@@ -17,6 +19,7 @@ from leon.chat import encode_chat
 from leon.data import ConversationFile, load_tokenizer
 from leon.model import Leon, LeonConfig
 from leon.paths import CHECKPOINT_DIR, DATA_DIR
+from leon.run import RunFiles, keep_system_awake
 from leon.training import load_checkpoint, lr_at, save_checkpoint
 
 CHECKPOINT_ROOT = CHECKPOINT_DIR / "5_sft"
@@ -167,8 +170,26 @@ def main() -> None:
         flush=True,
     )
 
+    # Control files for control.py: pid, pause request and status.json (progress, losses, ETA).
+    run = RunFiles(run_dir)
+    run.dir.mkdir(parents=True, exist_ok=True)
+    run.pid.write_text(str(os.getpid()))
+    run.clear_pause()
+    keep_system_awake()
+    tokens_per_step = args.batch_size * args.grad_accum * (block_size + 1)  # packed blocks, padding included
+    status = {"state": "running", "max_steps": total_steps}
+    if args.resume:  # keep the latest evaluation on screen until the next one
+        status.update({k: v for k, v in run.read_status().items() if k in ("val_loss", "probes", "best_val")})
+
+    def report(step: int, **fields) -> None:
+        status.update(fields)
+        run.write_status(**status, step=step, tokens_seen=step * tokens_per_step)
+
+    report(start_step)
     step = start_step
     started = time.perf_counter()
+    window_start, window_steps = time.perf_counter(), 0  # throughput between evaluations
+    loss_sum = torch.zeros((), device=device)
     try:
         for step in range(start_step, total_steps + 1):
             already_evaluated = args.resume and step == start_step
@@ -180,10 +201,13 @@ def main() -> None:
                     f"| ppl {math.exp(val_loss):.1f} | lr {schedule(step):.2e} | {elapsed / 60:.1f} min",
                     flush=True,
                 )
+                probes = []
                 for question in PROBES:
-                    print(
-                        f"    {question} → {answer(model, tokenizer, question, device, autocast)[:160]!r}", flush=True
-                    )
+                    reply = answer(model, tokenizer, question, device, autocast)[:160]
+                    probes.append([question, reply])
+                    print(f"    {question} → {reply!r}", flush=True)
+                report(step, val_loss=val_loss, best_val=min(best_val, val_loss), probes=probes)
+                window_start, window_steps = time.perf_counter(), 0
                 if val_loss < best_val:
                     best_val = val_loss
                     save_checkpoint(
@@ -215,16 +239,46 @@ def main() -> None:
                 with autocast():
                     _, loss = train_model(x, y)
                 (loss / args.grad_accum).backward()
+                loss_sum += loss.detach()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
+            window_steps += 1
+
+            done = step + 1
+            if done % 10 == 0:  # .item() waits for the GPU: only every few steps
+                seconds_per_step = (time.perf_counter() - window_start) / window_steps
+                report(
+                    done,
+                    train_loss=loss_sum.item() / (10 * args.grad_accum),
+                    tok_per_s=round(tokens_per_step / seconds_per_step),
+                    eta_hours=(total_steps - done) * seconds_per_step / 3600,
+                )
+                loss_sum.zero_()
+            if run.pause_requested():
+                save_checkpoint(
+                    run_dir / "last.pt",
+                    model,
+                    done,
+                    best_val,
+                    optimizer,
+                    settings,
+                    stage="chat",
+                    tokenizer=model_tokenizer,
+                )
+                run.clear_pause()
+                report(done, state="paused")
+                print(f"\nPaused: saved last.pt at step {done}. Continue with: control.py resume", flush=True)
+                return
     except KeyboardInterrupt:
         save_checkpoint(
             run_dir / "last.pt", model, step, best_val, optimizer, settings, stage="chat", tokenizer=model_tokenizer
         )
+        report(step, state="paused")
         print(f"\nInterrupted: saved last.pt at step {step}. Continue with --resume.", flush=True)
         return
 
+    report(total_steps, state="finished", eta_hours=0)
     print(f"\nBest val loss (answers): {best_val:.4f}. Chat model: {run_dir / 'best.pt'}", flush=True)
 
 
