@@ -59,7 +59,8 @@ flowchart TD
 | `model.py` | `Leon` y `LeonConfig`: RMSNorm, RoPE, atención con GQA, SwiGLU, `KVCache`, `stream`/`generate` | torch |
 | `data.py` | `TokenFile` (`.bin` con `np.memmap`, `get_batch`), `load_splits`, `load_tokenizer` | `paths`, `tokenizer` |
 | `training.py` | `lr_at`, `estimate_loss`, `bits_per_byte`, `save_checkpoint`/`load_checkpoint` | `model`, `data` |
-| `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake`. Lo común a los `control.py` de todas las fases: `launch` (proceso sin ventana), `wait_for_pause` y el panel en vivo (`dashboard`, `watch`), que muestra los campos que tenga el `status.json` de cada fase | — |
+| `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake`. Lo común a los `control.py` de todas las fases: `launch` (proceso sin ventana), `wait_for_pause`, el panel en vivo (`dashboard`, `watch`), que muestra los campos que tenga el `status.json` de cada fase, y `Control`, la línea de comandos `start / pause / resume / status / watch` | — |
+| `sft.py` | El bucle de ajuste supervisado de las fases 5, 6 y 8: `add_sft_args`, `micro_batch_plan` (conversaciones empaquetadas), `validation_loss`, `answer` (preguntas fijas) y `train_sft`, con estado, pausa y checkpoints | `chat`, `data`, `model`, `run`, `training` |
 | `export.py` | GGUF para llama.cpp, LM Studio y Ollama; `--verify` lo compara con los binarios de llama.cpp | `model`, `data`; extra opcional `gguf`, `jinja2` |
 | `chat.py` | `encode_chat`: el chat template | `tokenizer` |
 

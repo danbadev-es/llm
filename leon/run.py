@@ -1,6 +1,6 @@
 """Control files of a long training run, so it can be started, paused, resumed and watched
-from another process (phases/4_pretrain/control.py, phases/5_sft/control.py) while it runs
-in the background.
+from another process (each phase's control.py) while it runs in the background.
+`Control` is the command line those control.py files share.
 
 All of them live in the run's checkpoint folder:
 
@@ -10,6 +10,7 @@ All of them live in the run's checkpoint folder:
     train.log      everything the trainer prints
 """
 
+import argparse
 import json
 import math
 import os
@@ -18,6 +19,8 @@ import subprocess
 import sys
 import textwrap
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -310,3 +313,107 @@ def keep_system_awake() -> None:
 
         es_continuous, es_system_required = 0x80000000, 0x00000001
         ctypes.windll.kernel32.SetThreadExecutionState(es_continuous | es_system_required)
+
+
+@dataclass
+class Control:
+    """The command line of a phase's control.py: start, pause, resume, status and watch.
+
+    A phase only describes its run (title, trainer script, where checkpoints go) and, optionally,
+    a data check before start, a fallback status reader and extra commands (such as `prepare`):
+
+        Control("Leon 0.1 · SFT (phase 5)", RUNS_DIR, TRAIN_SCRIPT, Path(__file__), "leon_0.1_chat").main(__doc__)
+
+    Arguments after `--` are passed to the trainer.
+    """
+
+    title: str
+    runs_dir: Path
+    script: Path
+    control: Path
+    default_run: str
+    check: Callable[[], None] | None = None
+    status_reader: Callable[[RunFiles], dict] | None = None
+    extra: list[tuple[str, Callable[[argparse.Namespace], None], str]] = field(default_factory=list)
+
+    @property
+    def command(self) -> str:
+        from leon.paths import ROOT
+
+        return f"python {self.control.resolve().relative_to(ROOT).as_posix()}"
+
+    def run_files(self, args: argparse.Namespace) -> RunFiles:
+        return RunFiles(self.runs_dir / args.run)
+
+    def read_status(self, run: RunFiles) -> dict:
+        return run.read_status() or (self.status_reader(run) if self.status_reader else {})
+
+    def start(self, args: argparse.Namespace) -> None:
+        run = self.run_files(args)
+        if pid := run.running_pid():
+            raise SystemExit(f"Already running (pid {pid}). See: {self.command} status")
+        if run.last.exists() and not args.fresh:
+            raise SystemExit(
+                f"{run.last} already exists. Continue it with `{self.command} resume`, "
+                f"or start over (deleting its progress) with `{self.command} start --fresh`."
+            )
+        if self.check:
+            self.check()
+        run.status.unlink(missing_ok=True)
+        launch(run, self.script, ["--run", args.run, *args.train_args], self.control)
+        if not args.no_watch:
+            open_watch_window(self.control, args.run)
+
+    def resume(self, args: argparse.Namespace) -> None:
+        run = self.run_files(args)
+        if pid := run.running_pid():
+            raise SystemExit(f"Already running (pid {pid}). See: {self.command} status")
+        if not run.last.exists():
+            raise SystemExit(f"Nothing to resume: {run.last} does not exist. Use `{self.command} start`.")
+        launch(run, self.script, ["--run", args.run, "--resume", *args.train_args], self.control)
+        if not args.no_watch:
+            open_watch_window(self.control, args.run)
+
+    def pause(self, args: argparse.Namespace) -> None:
+        run = self.run_files(args)
+        if not run.read_status() and run.running_pid():
+            raise SystemExit(
+                "This run was started before its trainer could pause cleanly. It saves last.pt at every "
+                "evaluation: stopping it loses at most the steps since then."
+            )
+        wait_for_pause(run, args.timeout)
+
+    def status(self, args: argparse.Namespace) -> None:
+        run = self.run_files(args)
+        print(dashboard(run, self.title, self.command, self.read_status(run)))
+
+    def watch(self, args: argparse.Namespace) -> None:
+        run = self.run_files(args)
+        watch(run, self.title, self.command, lambda: self.read_status(run), args.interval)
+
+    def main(self, description: str, argv: list[str] | None = None) -> None:
+        argv = sys.argv[1:] if argv is None else argv
+        train_args = argv[argv.index("--") + 1 :] if "--" in argv else []
+        argv = argv[: argv.index("--")] if "--" in argv else argv
+
+        parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+        sub = parser.add_subparsers(dest="command", required=True)
+        commands = [
+            ("start", self.start, "start training in the background"),
+            ("pause", self.pause, "save and stop cleanly"),
+            ("resume", self.resume, "continue a paused run"),
+            ("status", self.status, "show the dashboard once"),
+            ("watch", self.watch, "live dashboard (closing it does not stop training)"),
+            *self.extra,
+        ]
+        for name, fn, help_text in commands:
+            command = sub.add_parser(name, help=help_text)
+            command.set_defaults(fn=fn)
+            command.add_argument("--run", default=self.default_run)
+            command.add_argument("--fresh", action="store_true", help="discard an existing run's progress")
+            command.add_argument("--no-watch", action="store_true", help="do not open the dashboard window")
+            command.add_argument("--interval", type=float, default=5, help="watch: seconds between refreshes")
+            command.add_argument("--timeout", type=int, default=300, help="pause: seconds to wait for the save")
+        args = parser.parse_args(argv)
+        args.train_args = train_args
+        args.fn(args)

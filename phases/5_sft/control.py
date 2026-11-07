@@ -15,22 +15,13 @@ A run started before train.py wrote status.json is still shown: the dashboard th
 the progress from the evaluations in train.log.
 """
 
-import argparse
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 
 from leon.paths import CHECKPOINT_DIR, DATA_DIR
-from leon.run import RunFiles, dashboard, launch, open_watch_window, wait_for_pause, watch
+from leon.run import Control, RunFiles
 
-PHASE_DIR = Path(__file__).resolve().parent
-TRAIN_SCRIPT = PHASE_DIR / "train.py"
-CONTROL = Path(__file__).resolve()
-CONTROL_CMD = "python phases/5_sft/control.py"
-TITLE = "Leon 0.1 · SFT (phase 5)"
-RUNS_DIR = CHECKPOINT_DIR / "5_sft"
-DEFAULT_RUN = "leon_0.1_chat"
 EVAL_LINE = re.compile(r"^step\s+(\d+)/(\d+) \| val loss \(answers\) ([\d.]+) .*\| ([\d.]+) min$")
 PROBE_LINE = re.compile(r"^    (.+?) → (['\"])(.*)\2$")
 
@@ -69,88 +60,20 @@ def status_from_log(run: RunFiles) -> dict:
     return status
 
 
-def read_status(run: RunFiles) -> dict:
-    return run.read_status() or status_from_log(run)
-
-
 def check_data() -> None:
     if not (DATA_DIR / "sft" / "train.npz").exists():
         raise SystemExit("No SFT data yet. Run: python phases/5_sft/prepare.py")
 
 
-def cmd_start(args: argparse.Namespace) -> None:
-    run = RunFiles(RUNS_DIR / args.run)
-    if pid := run.running_pid():
-        raise SystemExit(f"Already running (pid {pid}). See: control.py status")
-    if run.last.exists() and not args.fresh:
-        raise SystemExit(
-            f"{run.last} already exists. Continue it with `control.py resume`, "
-            "or start over (deleting its progress) with `control.py start --fresh`."
-        )
-    check_data()
-    run.status.unlink(missing_ok=True)
-    launch(run, TRAIN_SCRIPT, ["--run", args.run, *args.train_args], CONTROL)
-    if not args.no_watch:
-        open_watch_window(CONTROL, args.run)
-
-
-def cmd_resume(args: argparse.Namespace) -> None:
-    run = RunFiles(RUNS_DIR / args.run)
-    if pid := run.running_pid():
-        raise SystemExit(f"Already running (pid {pid}). See: control.py status")
-    if not run.last.exists():
-        raise SystemExit(f"Nothing to resume: {run.last} does not exist. Use `control.py start`.")
-    launch(run, TRAIN_SCRIPT, ["--run", args.run, "--resume", *args.train_args], CONTROL)
-    if not args.no_watch:
-        open_watch_window(CONTROL, args.run)
-
-
-def cmd_pause(args: argparse.Namespace) -> None:
-    run = RunFiles(RUNS_DIR / args.run)
-    if not run.read_status() and run.running_pid():
-        raise SystemExit(
-            "This run was started before train.py could pause cleanly. It saves last.pt at every "
-            "evaluation (every 100 steps): stopping it loses at most the steps since then."
-        )
-    wait_for_pause(run, args.timeout)
-
-
-def cmd_status(args: argparse.Namespace) -> None:
-    run = RunFiles(RUNS_DIR / args.run)
-    print(dashboard(run, TITLE, CONTROL_CMD, read_status(run)))
-
-
-def cmd_watch(args: argparse.Namespace) -> None:
-    run = RunFiles(RUNS_DIR / args.run)
-    watch(run, TITLE, CONTROL_CMD, lambda: read_status(run), args.interval)
-
-
-def main() -> None:
-    argv = sys.argv[1:]
-    train_args = argv[argv.index("--") + 1 :] if "--" in argv else []
-    argv = argv[: argv.index("--")] if "--" in argv else argv
-
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="command", required=True)
-    for name, fn, help_text in (
-        ("start", cmd_start, "start SFT in the background"),
-        ("pause", cmd_pause, "save and stop cleanly"),
-        ("resume", cmd_resume, "continue a paused run"),
-        ("status", cmd_status, "show progress"),
-        ("watch", cmd_watch, "live dashboard (closing it does not stop training)"),
-    ):
-        command = sub.add_parser(name, help=help_text)
-        command.set_defaults(fn=fn)
-        command.add_argument("--run", default=DEFAULT_RUN)
-    sub.choices["start"].add_argument("--fresh", action="store_true", help="discard an existing run's progress")
-    for name in ("start", "resume"):
-        sub.choices[name].add_argument("--no-watch", action="store_true", help="do not open the dashboard window")
-    sub.choices["watch"].add_argument("--interval", type=float, default=5, help="seconds between refreshes")
-    sub.choices["pause"].add_argument("--timeout", type=int, default=300)
-    args = parser.parse_args(argv)
-    args.train_args = train_args
-    args.fn(args)
-
+CONTROL = Control(
+    title="Leon 0.1 · SFT (phase 5)",
+    runs_dir=CHECKPOINT_DIR / "5_sft",
+    script=Path(__file__).resolve().parent / "train.py",
+    control=Path(__file__),
+    default_run="leon_0.1_chat",
+    check=check_data,
+    status_reader=status_from_log,
+)
 
 if __name__ == "__main__":
-    main()
+    CONTROL.main(__doc__)
