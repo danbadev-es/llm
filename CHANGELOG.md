@@ -5,6 +5,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Resultados
+- **Fase 6: herramientas** (2026-11-07): 384 pasos en 7,9 min; val loss 2,157 → 0,874. En 450 preguntas nuevas: JSON válido 100 %, herramienta correcta 100 %, respuesta correcta 92 % (calculadora 99 %, fecha 100 %, documentos 95 %; "no encontrado" solo 44 %: cita pasajes irrelevantes en vez de decir que no hay nada).
 - **Fase 5: SFT terminado** (2026-11-07): 4.863 pasos, 3 épocas de 86.088 conversaciones a contexto 2048, desde la extensión de la fase 4. Loss de las respuestas 2,846 → **2,070** (perplejidad 7,9) en 1 h 53 min. `checkpoints/5_sft/leon_0.1_chat/best.pt` saluda, responde preguntas sencillas ("La capital de Francia es París.") y sigue inventando datos.
 - **Fase 4: preentrenamiento de Leon 0.1 y extensión a 2048 terminados** (2026-11-07):
   - 56M de parámetros, contexto 1024, 2,0B de tokens de la Wikipedia en español (15.259 pasos);

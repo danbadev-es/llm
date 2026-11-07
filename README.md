@@ -16,7 +16,7 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 3: arquitectura moderna | ✅ | 1,175 bits/byte (32M, 31 min) · tamaño de Leon 0.1 fijado |
 | 4: preentrenamiento | ✅ | 56M, 2B tokens: **0,897 bits/byte** en Wikipedia, 1,687 en el Quijote, 12,5 h · extensión a contexto 2048: 151M tokens, 1,2 h, la segunda mitad del contexto 0,17 nats por debajo de la primera · `control.py start / pause / resume / status / extend` |
 | 5: SFT conversacional | ✅ | 86.088 conversaciones, contexto 2048, 3 épocas: loss de las respuestas 2,846 → **2,070** en 1 h 53 min · `phases/5_sft/control.py` |
-| 6: herramientas y agente | ⏳ entrenando | calculadora, fecha y búsqueda en documentos; 25.216 diálogos sintéticos · `phases/6_agent/` |
+| 6: herramientas y agente | ✅ | calculadora, fecha y búsqueda en documentos, 8 min: **JSON válido 100 %, herramienta correcta 100 %, respuesta correcta 92 %** (450 preguntas nuevas) · `phases/6_agent/` |
 | 7: DPO | 🧩 código listo | pares buena (humana) / mala (de Leon), referencia congelada · `phases/7_dpo/` |
 | 8: razonamiento | 🧩 código listo | aritmética en 5 niveles: directo, con pasos, con pasos + GRPO · `phases/8_reasoning/` |
 

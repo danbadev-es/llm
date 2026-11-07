@@ -88,11 +88,24 @@ Para probarlo en la app: elegir `6_agent/leon_0.1_agent` y activar **Herramienta
 
 ## Resultados
 
-*Pendiente de ejecutar.*
+Entrenado el 2026-11-07: 384 pasos (2 épocas, 12,6M tokens) en **7,9 min** a ~19.600 tok/s, desde `5_sft/leon_0.1_chat`. Val loss de los tokens aprendidos: 2,157 → **0,874**.
 
-| Métrica | Valor |
-|---|---|
-| Val loss (tokens aprendidos), inicio → final | |
-| JSON válido / herramienta correcta / respuesta correcta | |
-| Fase 5 en la misma evaluación (referencia) | JSON —, herramienta 20 % (solo acierta "sin herramienta"), respuesta 20 % (muestra de 15 preguntas) |
-| Horas de GPU | |
+`evaluate.py` (450 preguntas que no vio, *greedy*; los documentos son los de `data/docs/ejemplo/`, que el entrenamiento nunca buscó):
+
+| Tipo | Preguntas | JSON válido | Herramienta correcta | Respuesta correcta |
+|---|---|---|---|---|
+| calculadora | 100 | 100 % | 100 % | 99 % |
+| fecha_hora | 100 | 100 % | 100 % | 100 % |
+| documentos | 100 | 99 % | 99 % | 95 % |
+| no_encontrado | 50 | 100 % | 100 % | 44 % |
+| sin_herramienta | 100 | 100 % | 99 % | 99 % |
+| **total** | 450 | **100 %** | **100 %** | **92 %** |
+| *Fase 5, referencia* | 15 | — | 20 % | 20 % |
+
+Las metas (JSON válido > 95 %, herramienta correcta > 80 %) se cumplen de sobra. Ejemplos:
+
+- "Tenía 360 euros y gasté 87. ¿Cuánto dinero me queda?" → `calculadora("360-87")` → "Te quedan 273 euros."
+- "¿Qué fecha es hoy?" → `fecha_hora()` → "Hoy es sábado, 7 de noviembre de 2026."
+- "¿Qué sabes de Common Desktop Environment? Mira en mis documentos." → la búsqueda → "Según tus documentos, CDE (Common Desktop Environment) es un entorno de escritorio gráfico para Unix…"
+
+**El punto débil, `no_encontrado` (44 %)**: con 300 documentos, la búsqueda casi nunca devuelve "nada": BM25 encuentra alguna palabra suelta (*Los Angeles Kings* → un párrafo de la biografía de Frank Gehry que menciona Los Ángeles) y Leon cita ese pasaje que no viene a cuento. En el entrenamiento, los ejemplos `no_encontrado` solo tenían búsquedas sin ningún resultado, así que nunca aprendió a juzgar si lo encontrado responde a la pregunta. Dos arreglos posibles: un umbral de relevancia en `search_documents`, o diálogos con resultados irrelevantes y la respuesta "no encuentro nada sobre eso".
