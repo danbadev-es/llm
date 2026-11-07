@@ -51,8 +51,11 @@ export default function ContextMeter({ usage, mode }) {
 
   if (!usage) return null;
   const { context, reserved, used, free } = usage;
-  const filled = used + reserved; // the answer's room is taken as soon as the request is sent
-  const share = filled / context;
+  // The ring measures what the conversation fills of the room it has: the context minus the
+  // tokens reserved for the answer. It reaches 100 % exactly when old turns start to be dropped,
+  // and an empty conversation shows 0 % (the reservation is not "used" until Leon answers).
+  const budget = context - reserved;
+  const share = used / budget;
   const level = usage.dropped_tokens > 0 ? "full" : share >= 0.9 ? "high" : share >= 0.7 ? "warn" : "ok";
   const rows =
     mode === "chat"
@@ -70,7 +73,7 @@ export default function ContextMeter({ usage, mode }) {
         <button
           type="button"
           className="mb-[3px] grid size-8 shrink-0 place-items-center rounded-full transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 data-[state=open]:bg-accent"
-          aria-label={`Contexto: ${percent(filled, context)} % usado. Ver desglose`}
+          aria-label={`Contexto: ${percent(used, budget)} % usado. Ver desglose`}
         >
           {/* Rotated so the arc starts at 12 o'clock and fills clockwise. */}
           <svg width="22" height="22" viewBox="0 0 22 22" className="-rotate-90" aria-hidden="true">
@@ -99,10 +102,11 @@ export default function ContextMeter({ usage, mode }) {
         {...hover}
       >
         <p className="flex justify-between font-semibold">
-          Contexto <span>{percent(filled, context)} %</span>
+          Contexto <span>{percent(used, budget)} %</span>
         </p>
         <p className="mt-0.5 mb-3 text-muted-foreground">
-          {number(filled)} de {number(context)} tokens
+          {number(used)} de {number(budget)} tokens {mode === "chat" ? "para la conversación" : "para el texto"}. Otros{" "}
+          {number(reserved)} se reservan para la respuesta ({number(context)} en total).
         </p>
         <div className="mb-3 flex h-2 gap-0.5 overflow-hidden rounded-full bg-accent" aria-hidden="true">
           {rows.map((row) =>
