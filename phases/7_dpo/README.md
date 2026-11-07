@@ -64,12 +64,20 @@ Parte del modelo de la fase 6 si existe; si no, del de la fase 5 (`--base` y `--
 
 ## Resultados
 
-*Pendiente de ejecutar.* La cadena completa se probó en CPU con 4 preguntas: `prepare`, 2 pasos de entrenamiento (la pérdida empieza en 0,6931) y `evaluate.py`.
+Ejecutado el 2026-11-07 desde el modelo de la fase 6 (`6_agent/leon_0.1_agent`).
 
 | Métrica | Valor |
 |---|---|
-| Pares (train / val) | |
-| Pérdida DPO y precisión de la recompensa en val, inicio → final | 0,693 / 0,5 → |
-| Respuestas en bucle, antes → después | |
-| Respuestas que terminan solas, antes → después | |
-| Horas de GPU (pares + entrenamiento) | |
+| Pares (train / val) | 4.504 / 248, de 1.200 preguntas (8 muestras por pregunta, 4 elegidas, máximo 160 tokens) |
+| Pares sin atajo de longitud | la humana es la más larga en el 44 % de los pares; mediana 38 palabras (humana) frente a 61 (Leon) |
+| Respuestas en bucle en los pares | 22 % de las de Leon, 4 % de las humanas |
+| Pérdida DPO en val, inicio → final | 0,6931 → **0,449** |
+| Precisión de la recompensa en val | 0,5 → **0,93** (margen 0,64) |
+| Respuestas en bucle, antes → después | 27 % → **16 %** (62 preguntas nuevas, temperatura 0,8) |
+| Respuestas que terminan solas, antes → después | 79 % → **89 %** |
+| Palabras por respuesta, antes → después | 88 → 62 |
+| Tiempo de GPU | ~35 min para los pares, 3,5 min de entrenamiento |
+
+**Qué cambia y qué no**: se repite menos y termina más veces por sí mismo, que es justo lo que separaba sus respuestas de las humanas. No sabe más: sigue inventando datos con la misma seguridad ("¿Qué colombianos han ganado el Nobel de paz?" → "Dolly Vásquez, reconocida poeta…"). DPO cambia *cómo* responde, no *lo que sabe*.
+
+**Lección de coste**: generar es lento en una GPU de portátil con un modelo pequeño, porque cada token es una pasada con poco trabajo (la GPU al ~20 %). Agrupar varias muestras de la misma pregunta en un batch es casi gratis: 8 muestras cuestan lo mismo que 1.
