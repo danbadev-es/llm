@@ -142,13 +142,20 @@ El SDK 2.x quitó los argumentos `temperature`, `top_k` y `top_p` (la API de Cla
 
 **Prefill**: si el último mensaje es del asistente, la respuesta lo continúa (`encode_chat(..., continue_final_message=True)` deja su turno abierto, sin `<|end|>`). Como en Anthropic, no puede terminar en espacio.
 
-**Estadísticas de Leon**: la respuesta sin streaming, el `message_delta` final y el último evento `completion` llevan una clave extra, `"leon": {"tokens", "tok_per_s", "prompt_tokens", "dropped_turns", "stopped"}` (`stopped`: `end`, `max_tokens` o `stop_sequence`). Los clientes de Anthropic ignoran las claves que no conocen; en el SDK de Python se leen como `message.leon` o `event.leon`.
+**Estadísticas de Leon**: la respuesta sin streaming, el `message_delta` final y el último evento `completion` llevan una clave extra, `"leon": {"tokens", "tok_per_s", "prompt_tokens", "dropped_turns", "stopped"}` (`stopped`: `end`, `max_tokens`, `stop_sequence` o `tool_use`), y `tool_calls` cuando hay herramientas. Los clientes de Anthropic ignoran las claves que no conocen; en el SDK de Python se leen como `message.leon` o `event.leon`.
 
 **Errores**: el formato de Anthropic, `{"type": "error", "error": {"type", "message"}}`: `invalid_request_error` (400), `permission_error` (403, otro `Host`), `not_found_error` (404, p. ej. un modelo que no existe) y `api_error` (500). Todo se valida antes de empezar a generar; si algo falla con el streaming ya empezado, llega como un evento `error`. Las cabeceras `x-api-key`, `Authorization` y `anthropic-version` se aceptan y se ignoran. `tests/test_anthropic_api.py` lo comprueba todo con el SDK real.
 
 **Historial**: con la cabecera `X-Leon-Conversation: <id>` en `/v1/messages` o `/v1/complete`, el servidor guarda el intercambio en esa conversación: en modo chat, el último mensaje del usuario y la respuesta (no admite prefill); en modo completar, la respuesta con el `prompt` que continuó. Las estadísticas se guardan como `stats`, y una respuesta interrumpida (el cliente cierra la conexión) con lo escrito hasta ese momento y `{"stopped": "user"}`. El historial vive en `data/chat.db`, que no se versiona (`--db` cambia la ruta). Con el SDK: `extra_headers={"X-Leon-Conversation": id}`.
 
-**Diferencias con Anthropic, a propósito**: solo texto (imágenes, documentos, herramientas y *thinking* dan 400); un `max_tokens` mayor que el límite del modelo (la mitad de su contexto) se recorta en vez de rechazarse; `temperature` admite hasta 5 y `top_k` 0 (sin filtro); no hay caché de prompts ni lotes.
+**Herramientas** (fase 6), de dos tipos:
+
+- **Del cliente**, como en la API de Claude: `tools` (`name`, `description`, `input_schema`) se anuncian en el *system prompt*. Cuando el modelo llama a una, la respuesta termina con un bloque `tool_use` (`id`, `name`, `input`) y `stop_reason: "tool_use"`. El cliente la ejecuta y manda el resultado en un bloque `tool_result` del siguiente mensaje del usuario; el modelo continúa el mismo turno.
+- **Las de Leon** (`calculadora`, `fecha_hora`, `buscar_documentos`), que se ejecutan en el servidor: `"leon": {"tools": true}` (o una lista de nombres; con el SDK, en `extra_body`). La respuesta sigue tras cada llamada y el *stream* incluye un bloque `server_tool_use` (con su `input_json_delta`) y otro `leon_tool_result` (`tool_use_id`, `content`) por llamada. Es lo que usa la web con el interruptor **Herramientas**.
+
+`tool_choice` admite `auto` y `none`. Con la cabecera `X-Leon-Conversation`, las llamadas de cada respuesta se guardan en el historial (`steps`). `tests/test_api_tools.py` lo comprueba con el SDK.
+
+**Diferencias con Anthropic, a propósito**: texto y herramientas (imágenes, documentos y *thinking* dan 400; `tool_choice` `any` y `tool` también); un `max_tokens` mayor que el límite del modelo (la mitad de su contexto) se recorta en vez de rechazarse; `temperature` admite hasta 5 y `top_k` 0 (sin filtro); no hay caché de prompts ni lotes.
 
 La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messages` (Chat) y `/v1/complete` (Completar) con la cabecera `X-Leon-Conversation`. La API anterior (`/api/models` y `/api/generate`) ya no existe.
 

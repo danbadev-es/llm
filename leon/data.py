@@ -152,3 +152,30 @@ class ConversationFile:
         inputs = torch.from_numpy(x[:, :-1])
         targets = torch.from_numpy(np.where(learn[:, 1:], x[:, 1:], IGNORE))
         return inputs.to(device), targets.to(device)
+
+
+def save_conversations(
+    path: Path, conversations: list[tuple[list[int], list[bool]]], sources: list[str], tokenizer: str
+) -> dict:
+    """Write encoded conversations (ids, learn mask) as a ConversationFile .npz; returns its counts.
+
+    exchanges (questions per conversation) is derived from the <|user|> tokens.
+    """
+    ids, learn, offsets, exchanges = [], [], [0], []
+    user_id = load_tokenizer(tokenizer).special_tokens["<|user|>"]
+    for tokens, targets in conversations:
+        ids += tokens
+        learn += targets
+        offsets.append(len(ids))
+        exchanges.append(sum(t == user_id for t in tokens))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        path,
+        ids=np.array(ids, dtype=np.uint16),
+        learn=np.array(learn, dtype=bool),
+        offsets=np.array(offsets, dtype=np.int64),
+        sources=np.array(sources),
+        exchanges=np.array(exchanges, dtype=np.int16),
+        tokenizer=np.array(tokenizer),
+    )
+    return {"conversations": len(conversations), "tokens": len(ids), "learned_tokens": int(sum(learn))}

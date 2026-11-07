@@ -56,7 +56,10 @@ def run_agent(
         {"tool_call": {"name", "arguments"}} a valid call (or {"raw", "error"} if it was not)
         {"tool_result": text}                what the tool returned (errors included)
         {"done": True, "stopped", "tokens", "tool_calls"}
-            stopped: "end" | "max_tokens" | "max_tool_calls"
+            stopped: "end" | "max_tokens" | "max_tool_calls" | "tool_use"
+
+    A tool without `run` belongs to the client (as with the Claude API's tools): the loop yields
+    its call and stops with "tool_use"; the client runs it and sends the result in the next request.
 
     Text is only yielded once it is complete UTF-8. Tool results count towards neither the budget
     nor the generated tokens: the model did not write them.
@@ -101,6 +104,11 @@ def run_agent(
         raw = tokenizer.decode(call_ids)
         try:
             call = parse_call(raw)
+            tool = tools.get(call["name"])
+            if tool is not None and tool.run is None:  # the client runs it
+                yield {"tool_call": call}
+                yield {"done": True, "stopped": "tool_use", "tokens": generated, "tool_calls": calls}
+                return
             result = run_tool(call, tools)
             yield {"tool_call": call}
         except ValueError as error:

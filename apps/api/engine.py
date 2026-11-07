@@ -1,25 +1,33 @@
 """Model side of the chat: find checkpoints, build prompts, stream generated text.
 
-Kept free of any web framework so it can be reused (phase 6 will add the tool-calling loop here).
-Every generation endpoint (the Anthropic-compatible /v1 API in anthropic_api.py) turns
-its request into the same `params` dict and calls Engine.stream():
+Kept free of any web framework so it can be reused. Every generation endpoint (the
+Anthropic-compatible /v1 API in anthropic_api.py) turns its request into the same `params`
+dict and calls Engine.stream():
 
     model, mode ("chat" | "complete"), temperature, top_k, top_p, max_new_tokens, stop_sequences
     complete mode: prompt                 the raw text to continue
     chat mode:     system, messages       and prefill: continue the final assistant message
+                   tools (optional)       {name: leon.tools.Tool}: the answer runs the agent loop
+
+With tools, messages may hold tool calls and results (leon.chat), the system prompt lists the
+tools, and the stream also yields {"tool_call", "id"} and {"tool_result", "id"} events. Tools
+with `run` (Leon's own) are run here; a call to a client tool ends the answer ("tool_use").
 """
 
 import threading
 import time
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import torch
 
-from leon.chat import encode_chat
+from leon.agent import run_agent
+from leon.chat import DEFAULT_SYSTEM, encode_chat
 from leon.data import load_tokenizer
 from leon.model import Leon, LeonConfig
 from leon.paths import CHECKPOINT_DIR, LEGACY_TOKENIZER
+from leon.tools import TOOLS, system_prompt
 
 MODES = ("complete", "chat")
 
@@ -28,6 +36,15 @@ def find_checkpoints() -> dict[str, Path]:
     """Every Leon checkpoint: checkpoints/<N>_*/<run>/best.pt, for N >= 3."""
     paths = sorted(CHECKPOINT_DIR.glob("[3-9]_*/*/best.pt"))
     return {f"{p.parent.parent.name}/{p.parent.name}": p for p in paths}
+
+
+def effective_system(params: dict) -> str:
+    """The system prompt sent to the model: with tools, the tools' list after the instructions
+    (Leon's default ones if there are none, as in the phase 6 data)."""
+    tools = params.get("tools")
+    if not tools:
+        return params["system"]
+    return system_prompt(list(tools.values()), base=params["system"] or DEFAULT_SYSTEM)
 
 
 def read_number(request: dict, key: str, default, low, high, integer: bool = False):
@@ -112,15 +129,24 @@ class Engine:
         When it does not fit, whole turns are dropped starting from the oldest, always keeping
         the system instructions and the last message. Returns (ids, number of dropped turns).
         """
-        system = [{"role": "system", "content": params["system"]}] if params["system"] else []
+        text = effective_system(params)
+        system = [{"role": "system", "content": text}] if text else []
         messages = params["messages"]
         for dropped in range(len(messages)):
-            ids = encode_chat(tokenizer, system + messages[dropped:], continue_final_message=params["prefill"])
+            if messages[dropped]["role"] == "tool":
+                continue  # a tool result cannot start the prompt without its call
+            try:
+                ids = encode_chat(tokenizer, system + messages[dropped:], continue_final_message=params["prefill"])
+            except ValueError:
+                continue  # it would start inside an assistant turn that called tools
             if len(ids) <= budget or dropped == len(messages) - 1:
                 return ids[-budget:], dropped  # only a single huge message gets cut from its start
-        raise AssertionError("unreachable: the request parser guarantees at least one message")
+        # Only a tool exchange that does not fit at all is left: keep its end.
+        return encode_chat(tokenizer, system + messages, continue_final_message=params["prefill"])[-budget:], 0
 
-    def context_usage(self, model: str, mode: str, system: str, messages: list[dict], draft: str, max_new: int) -> dict:
+    def context_usage(
+        self, model: str, mode: str, system: str, messages: list[dict], draft: str, max_new: int, tools: bool = False
+    ) -> dict:
         """How the next request would fill the model's context, for the meter in the web app.
 
         The same arithmetic as stream(): the answer reserves min(max_new, context / 2) tokens and
@@ -128,6 +154,7 @@ class Engine:
         and the draft as a new user message; whole turns that do not fit are dropped, oldest
         first (there is no summarizing "compaction": a small model would summarize badly).
         In complete mode only the draft is sent, and its beginning is cut if it is too long.
+        With tools, the system instructions include the list of Leon's tools.
         """
         meta = torch.load(find_checkpoints()[model], map_location="cpu", weights_only=True, mmap=True)
         context = meta["config"]["block_size"]
@@ -140,6 +167,7 @@ class Engine:
             usage["draft"] = min(total, budget)
             return {**usage, "used": usage["draft"], "free": budget - usage["draft"], "total": total,
                     "dropped_messages": 0, "dropped_tokens": total - usage["draft"]}  # fmt: skip
+        system = effective_system({"system": system, "tools": TOOLS if tools else None})
         system_turn = [{"role": "system", "content": system}] if system else []
         turns = messages + ([{"role": "user", "content": draft}] if draft else [])
         if system_turn:
@@ -164,7 +192,8 @@ class Engine:
         tokenizer = self.tokenizer_for(params["model"])
         if params["mode"] == "complete":
             return len(tokenizer.encode(params["prompt"]))
-        system = [{"role": "system", "content": params["system"]}] if params["system"] else []
+        text = effective_system(params)
+        system = [{"role": "system", "content": text}] if text else []
         return len(encode_chat(tokenizer, system + params["messages"], continue_final_message=params["prefill"]))
 
     def stream(self, params: dict) -> Iterator[dict]:
@@ -195,6 +224,9 @@ class Engine:
 
             # The prompt is ready (and the model loaded): endpoints can start their response.
             yield {"started": True, "prompt_tokens": len(ids), "dropped_turns": dropped_turns}
+            if params["mode"] == "chat" and params.get("tools"):
+                yield from self._agent(model, tokenizer, params, ids, max_new, dropped_turns)
+                return
             idx = torch.tensor([ids], dtype=torch.long, device=self.device)
             stops = params["stop_sequences"]
             generated: list[int] = []
@@ -244,3 +276,51 @@ class Engine:
                 "stopped": stopped,
                 "stop_sequence": stop_sequence,
             }
+
+    def _agent(self, model: Leon, tokenizer, params: dict, ids: list[int], max_new: int, dropped: int):
+        """The answer through the agent loop (leon.agent): text, tool calls and their results.
+
+        Each call gets an id (toolu_…) shared by its result. Stop sequences do not apply here:
+        the answer may be split by tool calls. Runs with the engine's lock held (stream()).
+        """
+        block_size = model.config.block_size
+
+        def generate(context: list[int], budget: int, stop_ids: set[int]):
+            # The context grows with every result: keep its end (stream() crops it the same way).
+            idx = torch.tensor([context[-block_size:]], dtype=torch.long, device=self.device)
+            for token in model.stream(
+                idx,
+                budget,
+                temperature=params["temperature"],
+                top_k=params["top_k"] or None,
+                top_p=params["top_p"],
+                stop_ids=stop_ids,
+            ):
+                yield token.item()
+
+        start = time.perf_counter()
+        call_id = None
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+            for event in run_agent(generate, tokenizer, ids, max_new, tools=params["tools"]):
+                if "tool_call" in event:
+                    call_id = f"toolu_{uuid.uuid4().hex[:24]}"
+                    client = event["tool_call"].get("name") in params["tools"] and (
+                        params["tools"][event["tool_call"]["name"]].run is None
+                    )
+                    yield {"tool_call": event["tool_call"], "id": call_id, "client": client}
+                elif "tool_result" in event:
+                    yield {"tool_result": event["tool_result"], "id": call_id}
+                elif "text" in event:
+                    yield event
+                else:
+                    elapsed = time.perf_counter() - start
+                    yield {
+                        "done": True,
+                        "tokens": event["tokens"],
+                        "tok_per_s": event["tokens"] / elapsed if elapsed > 0 else 0.0,
+                        "prompt_tokens": len(ids),
+                        "dropped_turns": dropped,
+                        "stopped": "end" if event["stopped"] == "max_tool_calls" else event["stopped"],
+                        "stop_sequence": None,
+                        "tool_calls": event["tool_calls"],
+                    }

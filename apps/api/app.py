@@ -117,11 +117,19 @@ def create_app(engine: Engine, store: ConversationStore, port: int) -> Flask:
         )
         if not valid:
             return bad_request("'messages' must be a list of {role: user | assistant, content: string}")
+        if not isinstance(body.get("tools", False), bool):
+            return bad_request("'tools' must be true or false")
         max_tokens = body.get("max_tokens", 256)
         if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
             return bad_request("'max_tokens' must be a positive integer")
         usage = engine.context_usage(
-            body["model"], body.get("mode", "chat"), system.strip(), messages, draft.strip(), max_tokens
+            body["model"],
+            body.get("mode", "chat"),
+            system.strip(),
+            messages,
+            draft.strip(),
+            max_tokens,
+            tools=body.get("tools", False),
         )
         return jsonify(usage)
 

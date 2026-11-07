@@ -120,3 +120,14 @@ def test_agent_stops_at_the_token_budget() -> None:
     generate, _ = scripted(TOKENIZER.encode("hola hola hola hola"))
     events = list(run_agent(generate, TOKENIZER, prompt, max_new_tokens=3))
     assert events[-1] == {"done": True, "stopped": "max_tokens", "tokens": 3, "tool_calls": 0}
+
+
+def test_a_client_tool_call_ends_the_loop_for_the_client_to_run_it() -> None:
+    prompt = encode_chat(TOKENIZER, [{"role": "user", "content": "hola"}])
+    tools = {**TOOLS, "tiempo": Tool("tiempo", "el tiempo que hace", {"ciudad": "dónde"}, None)}
+    generate, _ = scripted(call_tokens('{"name": "tiempo", "arguments": {"ciudad": "Lima"}}'))
+    events = list(run_agent(generate, TOKENIZER, prompt, max_new_tokens=200, tools=tools))
+    assert events == [
+        {"tool_call": {"name": "tiempo", "arguments": {"ciudad": "Lima"}}},
+        {"done": True, "stopped": "tool_use", "tokens": events[-1]["tokens"], "tool_calls": 1},
+    ]

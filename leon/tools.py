@@ -10,11 +10,12 @@ a bad call becomes an "error: …" result the model can read and recover from.
 """
 
 import ast
+import heapq
 import math
 import operator
 import re
 import unicodedata
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -32,7 +33,7 @@ class Tool:
     name: str
     description: str
     parameters: dict[str, str]  # argument name -> description (all strings, all required)
-    run: Callable[[dict], str]
+    run: Callable[[dict], str] | None  # None: a client tool, run by whoever called the API
 
     @property
     def signature(self) -> str:
@@ -44,6 +45,8 @@ class Tool:
         missing = [name for name in self.parameters if name not in arguments]
         if missing:
             return f"error: falta el argumento {missing[0]}"
+        if self.run is None:
+            return "error: esta herramienta la ejecuta el cliente"
         try:
             return self.run(arguments)
         except Exception as error:  # a tool must never break the conversation
@@ -180,29 +183,30 @@ class DocumentIndex:
             title = lines[0].lstrip("# ").strip() if lines else path.stem
             for paragraph in re.split(r"\n\s*\n", text):
                 paragraph = " ".join(paragraph.split())
-                if len(paragraph) > 40 and not paragraph.startswith("#"):
+                # Prose only: headings, lists of links and category lines have no sentence ending.
+                if len(paragraph) > 40 and not paragraph.startswith("#") and re.search(r"[.!?]", paragraph):
                     self.passages.append((title, paragraph))
-        self.terms = [Counter(words(f"{title} {paragraph}")) for title, paragraph in self.passages]
-        self.lengths = [sum(t.values()) for t in self.terms]
+        terms = [Counter(words(f"{title} {paragraph}")) for title, paragraph in self.passages]
+        self.lengths = [sum(t.values()) for t in terms]
         self.average = sum(self.lengths) / len(self.lengths) if self.lengths else 0.0
-        frequency = Counter(term for terms in self.terms for term in terms)
-        n = len(self.terms)
-        self.idf = {term: math.log(1 + (n - df + 0.5) / (df + 0.5)) for term, df in frequency.items()}
+        # Inverted index: for each word, the passages that contain it and how often.
+        self.postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for i, counts in enumerate(terms):
+            for term, tf in counts.items():
+                self.postings[term].append((i, tf))
+        n = len(terms)
+        self.idf = {term: math.log(1 + (n - len(p) + 0.5) / (len(p) + 0.5)) for term, p in self.postings.items()}
 
     def search(self, query: str, k: int = 2) -> list[tuple[float, str, str]]:
         """The k best (score, title, paragraph) for the query, best first; only those that match."""
-        query_terms = set(words(query))
-        scores = []
-        for terms, length, (title, paragraph) in zip(self.terms, self.lengths, self.passages):
-            score = 0.0
-            for term in query_terms & terms.keys():
-                tf = terms[term]
-                score += (
-                    self.idf[term] * tf * (self.k1 + 1) / (tf + self.k1 * (1 - self.b + self.b * length / self.average))
-                )
-            if score > 0:
-                scores.append((score, title, paragraph))
-        return sorted(scores, key=lambda item: -item[0])[:k]
+        scores: dict[int, float] = defaultdict(float)
+        for term in set(words(query)):
+            idf = self.idf.get(term, 0.0)
+            for i, tf in self.postings.get(term, ()):
+                norm = self.k1 * (1 - self.b + self.b * self.lengths[i] / self.average)
+                scores[i] += idf * tf * (self.k1 + 1) / (tf + norm)
+        best = heapq.nlargest(k, scores.items(), key=lambda item: item[1])
+        return [(score, *self.passages[i]) for i, score in best]
 
 
 _indexes: dict[Path, tuple[tuple, DocumentIndex]] = {}

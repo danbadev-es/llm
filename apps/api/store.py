@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS messages (
     prompt           TEXT,
     stats            TEXT,
     error            TEXT,
+    steps            TEXT,
     created_at       REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
@@ -54,6 +55,10 @@ class ConversationStore:
         with self._connect() as db:
             db.executescript(SCHEMA)
             db.execute("PRAGMA journal_mode=WAL")  # readers do not block the writer
+            # Databases from before phase 6 lack the column of the tool calls: add it.
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(messages)")}
+            if "steps" not in columns:
+                db.execute("ALTER TABLE messages ADD COLUMN steps TEXT")
 
     @contextmanager
     def _connect(self):
@@ -94,14 +99,15 @@ class ConversationStore:
             if row is None:
                 return None
             messages = db.execute(
-                "SELECT role, content, prompt, stats, error FROM messages WHERE conversation_id = ? ORDER BY id",
+                "SELECT role, content, prompt, stats, error, steps FROM messages WHERE conversation_id = ? ORDER BY id",
                 (conversation_id,),
             ).fetchall()
         result = []
         for message in messages:
             item = {k: v for k, v in dict(message).items() if v is not None}
-            if "stats" in item:
-                item["stats"] = json.loads(item["stats"])
+            for key in ("stats", "steps"):
+                if key in item:
+                    item[key] = json.loads(item[key])
             result.append(item)
         return {**dict(row), "messages": result}
 
@@ -136,14 +142,20 @@ class ConversationStore:
         stats: dict | None = None,
         error: str | None = None,
         model: str | None = None,
+        steps: list[dict] | None = None,
     ) -> None:
-        """Append a message and move the conversation to the top of the history."""
+        """Append a message and move the conversation to the top of the history.
+
+        steps: the tool calls of an answer, [{"id", "name", "input", "result", "at"}], where "at"
+        is how much of the answer's text came before the call (where the web shows it).
+        """
         now = time.time()
+        encoded = [json.dumps(value, ensure_ascii=False) if value else None for value in (stats, steps)]
         with self._connect() as db:
             db.execute(
-                "INSERT INTO messages (conversation_id, role, content, prompt, stats, error, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (conversation_id, role, content, prompt, json.dumps(stats) if stats else None, error, now),
+                "INSERT INTO messages (conversation_id, role, content, prompt, stats, error, steps, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (conversation_id, role, content, prompt, encoded[0], error, encoded[1], now),
             )
             db.execute(
                 "UPDATE conversations SET updated_at = ?, model = COALESCE(?, model) WHERE id = ?",
@@ -158,14 +170,20 @@ class ConversationStore:
         the endpoint to report), or with what was written so far and {"stopped": "user"} if the
         client disconnects (closing this generator also closes the engine's, freeing the model).
         """
-        text, saved = [], False
+        text, steps, saved = [], [], False
 
         def save(**fields) -> None:
             nonlocal saved
             if not saved:
                 prompt = params["prompt"] if params["mode"] == "complete" else None
                 self.add_message(
-                    conversation_id, "assistant", "".join(text), prompt=prompt, model=params["model"], **fields
+                    conversation_id,
+                    "assistant",
+                    "".join(text),
+                    prompt=prompt,
+                    model=params["model"],
+                    steps=steps,
+                    **fields,
                 )
                 saved = True
 
@@ -175,6 +193,13 @@ class ConversationStore:
             for event in stream:
                 if "text" in event:
                     text.append(event["text"])
+                elif "tool_call" in event:
+                    call = event["tool_call"]
+                    steps.append({"id": event["id"], "name": call.get("name", ""),
+                                  "input": call.get("arguments", {"raw": call.get("raw")}),
+                                  "at": len("".join(text))})  # fmt: skip
+                elif "tool_result" in event and steps:
+                    steps[-1]["result"] = event["tool_result"]
                 elif event.get("done"):
                     save(stats={k: v for k, v in event.items() if k != "done"})
                 yield event
