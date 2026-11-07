@@ -57,3 +57,15 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print(f"ok  {name}")
+
+
+def test_status_survives_a_reader_holding_the_file() -> None:
+    """On Windows, replacing status.json fails while another process has it open: the trainer
+    must not crash for that (it skips one update)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        run = RunFiles(Path(tmp) / "run")
+        run.write_status(step=1)
+        with open(run.status, encoding="utf-8"):  # a dashboard reading at the wrong moment
+            run.write_status(step=2)  # must not raise
+        run.write_status(step=3)
+        assert run.read_status()["step"] == 3

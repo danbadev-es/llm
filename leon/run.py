@@ -55,10 +55,23 @@ class RunFiles:
         fields["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         tmp = self.status.with_suffix(".tmp")
         tmp.write_text(json.dumps(fields, indent=2), encoding="utf-8")
-        os.replace(tmp, self.status)
+        # On Windows the rename fails while a reader (the dashboard, `status`) has the file open.
+        # Status is informative: retry briefly, then skip this update rather than stop the
+        # training (the next update, a few seconds later, replaces it).
+        for _ in range(20):
+            try:
+                os.replace(tmp, self.status)
+                return
+            except PermissionError:
+                time.sleep(0.05)
 
     def read_status(self) -> dict:
-        return json.loads(self.status.read_text(encoding="utf-8")) if self.status.exists() else {}
+        for _ in range(20):
+            try:
+                return json.loads(self.status.read_text(encoding="utf-8")) if self.status.exists() else {}
+            except (PermissionError, json.JSONDecodeError):  # caught in the middle of a write
+                time.sleep(0.05)
+        return {}
 
     # --- process ---
 
