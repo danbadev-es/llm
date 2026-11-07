@@ -13,6 +13,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
   - **Extensión a 2048** (`leon_0.1_ctx2048`, 151M de tokens, 1 h 12 min): la loss en las posiciones 1024–2047 de artículos largos queda 0,17 por debajo de la de 0–1023 (−0,07 antes); Quijote 1,657 bits/byte.
 
 ### Añadido
+- **Fase 7, DPO** (lista para ejecutar cuando la GPU esté libre): `leon/dpo.py` (pérdida DPO, log-probabilidades de una respuesta); `phases/7_dpo/prepare.py` genera los pares con el propio Leon (respuesta humana frente a la suya, 4 muestras por pregunta en un batch, reanudable); `train.py` con referencia congelada precalculada; `evaluate.py` (repeticiones, respuestas terminadas, longitud). El panel común muestra `Metrics` (precisión de la recompensa, margen).
 - **Fase 6, herramientas** (lista para entrenar cuando la GPU esté libre):
   - template con llamadas (`<|tool_call|>…<|/tool_call|><|tool_result|>…<|/tool_result|>`, `leon/chat.py`), tres herramientas (`leon/tools.py`: calculadora sin `eval`, fecha en español, búsqueda BM25 en `data/docs/`) y el bucle del agente (`leon/agent.py`);
   - `phases/6_agent/`: `prepare.py` (25.216 diálogos sintéticos con resultados de las herramientas reales, 300 documentos de ejemplo), `train.py` + `control.py` (sobre `leon.sft`), `evaluate.py` (JSON válido, herramienta y respuesta correctas);

@@ -210,7 +210,8 @@ def dashboard(run: RunFiles, title: str, control: str, status: dict) -> str:
 
     Common fields: state, step, max_steps, tokens_seen, train_loss, val_loss, best_val, tok_per_s,
     eta_hours, updated_at. Optional: val_bits_per_byte, val_loss_first_half/second_half (context
-    extension), sample (a text continuation) and probes ([question, answer] pairs).
+    extension), sample (a text continuation), probes ([question, answer] pairs), metrics ({name:
+    value}, e.g. DPO's reward accuracy) and perplexity (False: the loss is not a language-model one).
     """
     pid = run.running_pid()
     width = max(60, min(shutil.get_terminal_size().columns, 110))
@@ -243,16 +244,23 @@ def dashboard(run: RunFiles, title: str, control: str, status: dict) -> str:
         if status.get("train_loss") is not None:
             losses.append(f"train {status['train_loss']:.3f}")
         if status.get("val_loss") is not None:
-            detail = (
-                f"{status['val_bits_per_byte']:.3f} bits/byte"
-                if status.get("val_bits_per_byte") is not None
-                else f"ppl {math.exp(status['val_loss']):.1f}"
-            )
-            losses.append(f"val {status['val_loss']:.3f} ({detail})")
+            if status.get("val_bits_per_byte") is not None:
+                detail = f" ({status['val_bits_per_byte']:.3f} bits/byte)"
+            elif status.get("perplexity", True):  # a language-model loss; DPO's is not one
+                detail = f" (ppl {math.exp(min(status['val_loss'], 50)):.1f})"
+            else:
+                detail = ""
+            losses.append(f"val {status['val_loss']:.3f}{detail}")
         if status.get("best_val") is not None:
             losses.append(f"best {status['best_val']:.3f}")
         if losses:
             lines.append(f" Loss        {' · '.join(losses)}")
+        if metrics := status.get("metrics"):  # other numbers a phase tracks: {"reward accuracy": 0.71}
+            shown = [
+                f"{name} {value:.3f}" if isinstance(value, float) else f"{name} {value}"
+                for name, value in metrics.items()
+            ]
+            lines.append(f" Metrics     {' · '.join(shown)}")
         if status.get("val_loss_second_half") is not None:
             lines.append(
                 f" Long text   first half {status['val_loss_first_half']:.3f} · "

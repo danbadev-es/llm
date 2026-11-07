@@ -64,6 +64,7 @@ flowchart TD
 | `export.py` | GGUF para llama.cpp, LM Studio y Ollama; `--verify` lo compara con los binarios de llama.cpp | `model`, `data`; extra opcional `gguf`, `jinja2` |
 | `chat.py` | `encode_chat` y `encode_chat_for_training`: el chat template, con llamadas a herramientas desde la fase 6; `DEFAULT_SYSTEM` | `tokenizer` |
 | `tools.py` | Las herramientas de Leon (fase 6): `calculadora` (evaluador aritmético sobre el AST, sin `eval`), `fecha_hora`, `buscar_documentos` (BM25 sobre `data/docs/`), y `system_prompt`, que las anuncia al modelo | `chat`, `paths` |
+| `dpo.py` | DPO (fase 7): `encode_answer`, `batch` (secuencias con máscara de respuesta), `sequence_logprobs` y `dpo_loss` con sus métricas | `chat` |
 | `agent.py` | `run_agent`: el bucle del agente (generar, parsear la llamada, ejecutar, añadir el resultado, continuar); `parse_call` | `tools` |
 
 ### El modelo

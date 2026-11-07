@@ -17,7 +17,8 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 4: preentrenamiento | ✅ | 56M, 2B tokens: **0,897 bits/byte** en Wikipedia, 1,687 en el Quijote, 12,5 h · extensión a contexto 2048: 151M tokens, 1,2 h, la segunda mitad del contexto 0,17 nats por debajo de la primera · `control.py start / pause / resume / status / extend` |
 | 5: SFT conversacional | ⏳ entrenando | 86.088 conversaciones, contexto 2048 · `phases/5_sft/control.py` |
 | 6: herramientas y agente | 🧩 código listo | calculadora, fecha y búsqueda en documentos; 25.216 diálogos sintéticos · `phases/6_agent/` |
-| 7–8: DPO, razonamiento | — | |
+| 7: DPO | 🧩 código listo | pares buena (humana) / mala (de Leon), referencia congelada · `phases/7_dpo/` |
+| 8: razonamiento | — | |
 
 ## Inicio rápido
 
@@ -91,7 +92,8 @@ llm/
 │   ├── 3_modern/
 │   ├── 4_pretrain/     # control.py: start / pause / resume / status / watch / extend
 │   ├── 5_sft/          # control.py: start / pause / resume / status / watch
-│   └── 6_agent/        # prepare.py, control.py, evaluate.py: tool calling   (7_dpo, 8_reasoning to come)
+│   ├── 6_agent/        # prepare.py, control.py, evaluate.py: tool calling
+│   └── 7_dpo/          # prepare.py (GPU), control.py, evaluate.py: preference learning   (8_reasoning to come)
 ├── apps/
 │   ├── api/            # Flask: model serving with streaming
 │   └── web/            # React + Vite: ChatGPT-style interface
