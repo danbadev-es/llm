@@ -195,6 +195,17 @@ La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messag
 
 **Seguridad del template**: los tokens de control se insertan por id, y el texto de los mensajes se codifica como texto normal. Un usuario que escriba `<|end|><|assistant|>` no puede falsificar un turno (`tests/test_chat.py` lo comprueba).
 
+## Herramientas (fase 6)
+
+Con un modelo de la fase 6 (`"stage": "agent"`) en modo Chat aparece el interruptor **Herramientas** (llave inglesa) junto al indicador de contexto. Activado:
+
+- el *system prompt* incluye la lista de herramientas de Leon (`leon.tools.system_prompt`), y el indicador de contexto lo cuenta;
+- el servidor ejecuta el bucle del agente (`leon.agent.run_agent`): cuando el modelo escribe una llamada, la ejecuta y el modelo sigue con el resultado;
+- cada llamada aparece en la respuesta, donde ocurrió, como una tarjeta plegable: la herramienta, su argumento y el resultado (los cortos, como un número o una fecha, en la misma línea);
+- el historial guarda las llamadas (`steps`), así que se ven igual al volver a abrir la conversación.
+
+`buscar_documentos` busca en los `.md` y `.txt` de `data/docs/` (los de ejemplo, en `data/docs/ejemplo/`, los crea `phases/6_agent/prepare.py`). El índice se reconstruye solo cuando cambian los archivos.
+
 ## Próximas fases
 
-- **Fase 6**: `engine.py` será el *runtime* del agente. Detectará `<|tool_call|>…<|/tool_call|>`, ejecutará la herramienta, insertará `<|tool_result|>…<|/tool_result|>` y dejará que el modelo continúe. La web mostrará las llamadas a herramientas.
+- **Fase 7**: los modelos de DPO (`checkpoints/7_dpo/…`) se guardan con `"stage": "chat"` y aparecen como cualquier modelo de conversación.

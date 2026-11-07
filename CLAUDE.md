@@ -4,7 +4,7 @@ Read README.md and ARCHITECTURE.md first. Answer the user in Spanish; code, comm
 
 ## Training runs: what the user's words mean
 
-Every long training run has a `control.py` in its phase folder (run from the repo root with `.venv\Scripts\python.exe`). The words act on **the phase in progress**: phase 5 (`phases/5_sft/control.py`) now that phase 4 has finished; phase 4 (`phases/4_pretrain/control.py`) if the user names it.
+Every long training run has a `control.py` in its phase folder (run from the repo root with `.venv\Scripts\python.exe`). The words act on **the phase in progress**: the lowest phase whose run has not finished (phase 5, then 6: `phases/6_agent/control.py`, which needs `phases/6_agent/prepare.py` first, CPU only, and the phase 5 model); an earlier phase if the user names it. After phase 6 trains, run `phases/6_agent/evaluate.py` and report its table.
 
 | The user says | Run | Then |
 |---|---|---|

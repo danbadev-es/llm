@@ -21,7 +21,7 @@ export const isSendKey = (e) => e.key === "Enter" && !e.shiftKey && !e.nativeEve
 
 // The input at the bottom. inputRef is owned by App, so global shortcuts can focus it.
 // onTextChange lets App measure the draft (the context meter); meter is rendered by the send button.
-export default function Composer({ inputRef, mode, busy, disabled, onSend, onStop, onTextChange, meter }) {
+export default function Composer({ inputRef, mode, busy, disabled, onSend, onStop, onTextChange, meter, tools }) {
   const [text, setText] = useState("");
   useAutoGrow(inputRef, text);
   useEffect(() => onTextChange?.(text), [text, onTextChange]);
@@ -55,6 +55,7 @@ export default function Composer({ inputRef, mode, busy, disabled, onSend, onSto
             if (!busy && !empty) submit(); // while generating, Enter never doubles as "stop"
           }}
         />
+        {tools}
         {meter}
         <WithTooltip label={busy ? "Detener (Esc)" : "Enviar (Enter)"}>
           <Button

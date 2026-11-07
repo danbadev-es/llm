@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import WithTooltip from "./WithTooltip.jsx";
 import { cn } from "cn";
+import { AnswerWithTools } from "./ToolCall.jsx";
 import { formatStats } from "../format.js";
 import { isSendKey, useAutoGrow } from "./Composer.jsx";
 
@@ -100,7 +101,8 @@ function TypingDots() {
   );
 }
 
-// A message: {role: "user" | "assistant", content, prompt?, stats?, error?, streaming?}.
+// A message: {role: "user" | "assistant", content, prompt?, stats?, error?, steps?, streaming?}.
+// steps: the tool calls of an answer (phase 6), shown as cards where they happened in the text.
 // In Completar mode the assistant message carries the prompt it continued: the prompt is shown
 // highlighted and the continuation as plain text, so it is always clear which words are the model's.
 export default function Message({ message, previousRole, isLast, canEdit, canRegenerate, onCopy, onRegenerate, onEdit }) {
@@ -157,9 +159,9 @@ export default function Message({ message, previousRole, isLast, canEdit, canReg
           </mark>
         )}
         {isCompletion && content && <span className="sr-only"> Continuación: </span>}
-        {content}
+        {message.steps?.length ? <AnswerWithTools content={content} steps={message.steps} streaming={streaming} /> : content}
         {streaming &&
-          (content || isCompletion ? (
+          (content || isCompletion || message.steps?.length ? (
             <span className="ml-[3px] inline-block size-[0.5em] animate-soft-pulse rounded-full bg-foreground align-[0.05em]" aria-hidden="true" />
           ) : (
             <TypingDots />

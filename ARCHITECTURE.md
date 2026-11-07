@@ -166,7 +166,8 @@ Compatible con la API de Claude (`apps/api/anthropic_api.py`), para que el SDK o
 
 SQLite en `data/chat.db` (`apps/api/store.py`):
 
-- **Tablas**: `conversations` (id, título, modo, modelo, fechas) y `messages` (rol, contenido, `prompt` en las respuestas del modo completar, `stats` en JSON, `error`).
+- **Tablas**: `conversations` (id, título, modo, modelo, fechas) y `messages` (rol, contenido, `prompt` en las respuestas del modo completar, `stats` en JSON, `error`, y `steps` en JSON con las llamadas a herramientas: `[{"id", "name", "input", "result", "at"}]`, donde `at` es cuánto texto de la respuesta iba antes).
+- **Migraciones**: al abrir una base de datos anterior, `ConversationStore` añade las columnas que falten (`steps`).
 - **Borrado**: en cascada; al eliminar una conversación se eliminan sus mensajes.
 - **Conexiones**: una por petición, porque Flask atiende con varios hilos y SQLite no comparte conexiones entre hilos.
 
@@ -204,4 +205,4 @@ SQLite en `data/chat.db` (`apps/api/store.py`):
 |---|---|---|
 | 4: preentrenamiento | **Implementada**: `phases/4_pretrain/control.py` (prepare, start, pause, resume, status, watch, extend) lanza `train.py` como proceso independiente. Pausar y continuar da exactamente los mismos pesos que entrenar sin parar | `leon.data`, `leon.model`, `leon.training`, `leon.run` |
 | 5: SFT conversacional | `phases/5_sft/`: dataset de diálogos codificado con `encode_chat` y targets a `-100` en los turnos no del asistente (`ignore_index` de la loss). Checkpoints con `stage="chat"` | `leon.chat`, `leon.training`; la loss de `Leon.forward` ya ignora los targets `-100` |
-| 6: tool calling | `apps/api/engine.py`: detectar `<\|tool_call\|>…<\|/tool_call\|>`, ejecutar la herramienta, insertar `<\|tool_result\|>…<\|/tool_result\|>` y continuar generando. Las herramientas irán en un módulo propio de `leon/` o de `apps/api` | tokens especiales ya reservados |
+| 6: tool calling | **Implementada**: template en `leon/chat.py`, herramientas en `leon/tools.py`, bucle en `leon/agent.py`; `apps/api/engine.py` lo ejecuta con `"leon": {"tools": true}` y la API acepta `tools`/`tool_use`/`tool_result` como la de Claude. Datos, entrenamiento y evaluación en `phases/6_agent/` | `leon.sft`, `leon.run.Control` |

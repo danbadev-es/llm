@@ -16,6 +16,7 @@ import {
 } from "./api.js";
 import Composer from "./components/Composer.jsx";
 import ContextMeter from "./components/ContextMeter.jsx";
+import ToolsToggle from "./components/ToolsToggle.jsx";
 import Header from "./components/Header.jsx";
 import SettingsDialog from "./components/SettingsDialog.jsx";
 import Sidebar from "./components/Sidebar.jsx";
@@ -106,10 +107,14 @@ export default function App() {
   const modelNameRef = useRef(modelName);
   modelNameRef.current = modelName;
   const canSend = Boolean(model) && !loadingConversation;
+  // Leon's tools: in chat mode, for the models trained to call them (phase 6, stage "agent").
+  const toolsAvailable = mode === "chat" && model?.stage === "agent";
+  const toolsOn = Boolean(toolsAvailable && settings.tools);
   const contextUsage = useContextUsage({
     model,
     mode,
     system: settings.system,
+    tools: toolsOn,
     maxTokens: model ? Math.min(settings.maxTokens, model.max_new_tokens) : 0,
     messages,
     draft: draft.trim(),
@@ -261,6 +266,7 @@ export default function App() {
         .map(({ role, content }) => ({ role, content }));
       body.messages = [...history, { role: "user", content: text }];
       body.system = settings.system;
+      body.tools = toolsOn;
       setMessages([...base, { role: "user", content: text }, answer]);
     } else {
       body.prompt = text;
@@ -302,6 +308,13 @@ export default function App() {
             if (event.text !== undefined) {
               pending += event.text;
               frame ||= requestAnimationFrame(flush);
+            } else if (event.tool_call) {
+              flush(); // the call sits where the text has reached
+              const { id, name, input } = event.tool_call;
+              patch((last) => ({ steps: [...(last.steps ?? []), { id, name, input, at: last.content.length }] }));
+            } else if (event.tool_result) {
+              const { id, content } = event.tool_result;
+              patch((last) => ({ steps: (last.steps ?? []).map((s) => (s.id === id ? { ...s, result: content } : s)) }));
             } else if (event.done) {
               finished = true;
               flush();
@@ -442,6 +455,11 @@ export default function App() {
           onStop={stop}
           onTextChange={setDraft}
           meter={<ContextMeter usage={contextUsage} mode={mode} />}
+          tools={
+            toolsAvailable ? (
+              <ToolsToggle on={toolsOn} onChange={(on) => setSettings((current) => ({ ...current, tools: on }))} />
+            ) : null
+          }
         />
       </main>
       <SettingsDialog

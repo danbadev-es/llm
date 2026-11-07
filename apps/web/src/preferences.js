@@ -4,7 +4,15 @@
 // The system prompt Leon saw in a share of its SFT conversations (leon/chat.py DEFAULT_SYSTEM).
 export const DEFAULT_SYSTEM = "Eres Leon, un asistente que responde en español de forma clara y breve.";
 // version 2: the system prompt defaults to DEFAULT_SYSTEM (version 1 saved "" for "none" by default).
-export const DEFAULT_SETTINGS = { temperature: 0.8, topK: 40, maxTokens: 200, system: DEFAULT_SYSTEM, version: 2 };
+// tools: Leon's own tools (calculator, date, document search) in chat mode, for phase 6 models.
+export const DEFAULT_SETTINGS = {
+  temperature: 0.8,
+  topK: 40,
+  maxTokens: 200,
+  system: DEFAULT_SYSTEM,
+  tools: true,
+  version: 2,
+};
 
 const KEYS = { settings: "leon.settings", model: "leon.model", mode: "leon.mode" };
 

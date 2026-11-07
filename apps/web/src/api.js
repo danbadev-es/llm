@@ -65,6 +65,8 @@ function toAnthropic(body) {
         max_tokens: body.max_new_tokens,
         messages: body.messages,
         ...(body.system?.trim() ? { system: body.system } : {}),
+        // Leon's own tools, run on the server (phase 6): the answer streams their calls and results.
+        ...(body.tools ? { leon: { tools: true } } : {}),
         ...sampling,
       },
     };
@@ -75,7 +77,41 @@ function toAnthropic(body) {
   };
 }
 
-// One Anthropic stream event → the app's events: {text}, {done, ...stats} or {error}.
+// Anthropic stream events → the app's events: {text}, {tool_call}, {tool_result}, {done, ...stats}
+// or {error}. Stateful: a tool call's input arrives as JSON pieces (input_json_delta) between the
+// start and the stop of its block, so one parser lives as long as one answer.
+function anthropicParser() {
+  const calls = new Map(); // block index → {id, name, json}
+  return (event) => {
+    if (event.type === "content_block_start" && event.content_block?.type === "server_tool_use") {
+      const { id, name } = event.content_block;
+      calls.set(event.index, { id, name, json: "" });
+      return null;
+    }
+    if (event.type === "content_block_start" && event.content_block?.type === "leon_tool_result") {
+      return { tool_result: { id: event.content_block.tool_use_id, content: event.content_block.content } };
+    }
+    if (event.type === "content_block_delta" && event.delta?.type === "input_json_delta") {
+      const call = calls.get(event.index);
+      if (call) call.json += event.delta.partial_json;
+      return null;
+    }
+    if (event.type === "content_block_stop" && calls.has(event.index)) {
+      const { id, name, json } = calls.get(event.index);
+      calls.delete(event.index);
+      let input = {};
+      try {
+        input = JSON.parse(json || "{}");
+      } catch {
+        input = { raw: json };
+      }
+      return { tool_call: { id, name, input } };
+    }
+    return fromAnthropic(event);
+  };
+}
+
+// One stateless Anthropic stream event → the app's events: {text}, {done, ...stats} or {error}.
 function fromAnthropic(event) {
   switch (event.type) {
     case "content_block_delta":
@@ -92,8 +128,9 @@ function fromAnthropic(event) {
   }
 }
 
-// Stream one answer. onEvent receives {text} pieces, then {done, tokens, tok_per_s, prompt_tokens,
-// dropped_turns, stopped} or {error}. With body.conversation_id the server saves the exchange.
+// Stream one answer. onEvent receives {text} pieces ({tool_call} and {tool_result} with tools), then
+// {done, tokens, tok_per_s, prompt_tokens, dropped_turns, stopped} or {error}.
+// With body.conversation_id the server saves the exchange.
 export async function streamGenerate(body, { signal, onEvent }) {
   const { url, payload } = toAnthropic(body);
   const response = await fetch(url, {
@@ -110,6 +147,7 @@ export async function streamGenerate(body, { signal, onEvent }) {
   // Server-Sent Events: "event: <type>" and "data: <json>" lines, events separated by a blank line.
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const parse = anthropicParser();
   let buffer = "";
   while (true) {
     const { value, done } = await reader.read();
@@ -120,7 +158,7 @@ export async function streamGenerate(body, { signal, onEvent }) {
     for (const raw of events) {
       const data = raw.split("\n").find((line) => line.startsWith("data: "));
       if (!data) continue;
-      const event = fromAnthropic(JSON.parse(data.slice(6)));
+      const event = parse(JSON.parse(data.slice(6)));
       if (!event) continue;
       if (event.final) {
         if (event.text) onEvent({ text: event.text });

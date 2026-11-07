@@ -15,7 +15,9 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 2: tokenizer BPE | ✅ | 16.384 tokens · 4,19 bytes/token en Wikipedia |
 | 3: arquitectura moderna | ✅ | 1,175 bits/byte (32M, 31 min) · tamaño de Leon 0.1 fijado |
 | 4: preentrenamiento | ✅ | 56M, 2B tokens: **0,897 bits/byte** en Wikipedia, 1,687 en el Quijote, 12,5 h · extensión a contexto 2048: 151M tokens, 1,2 h, la segunda mitad del contexto 0,17 nats por debajo de la primera · `control.py start / pause / resume / status / extend` |
-| 5–8: SFT, agente, DPO, razonamiento | — | |
+| 5: SFT conversacional | ⏳ entrenando | 86.088 conversaciones, contexto 2048 · `phases/5_sft/control.py` |
+| 6: herramientas y agente | 🧩 código listo | calculadora, fecha y búsqueda en documentos; 25.216 diálogos sintéticos · `phases/6_agent/` |
+| 7–8: DPO, razonamiento | — | |
 
 ## Inicio rápido
 
@@ -88,7 +90,8 @@ llm/
 │   ├── 2_tokenizer/
 │   ├── 3_modern/
 │   ├── 4_pretrain/     # control.py: start / pause / resume / status / watch / extend
-│   └── 5_sft/          # control.py: start / pause / resume / status / watch   (6_agent … 8_reasoning to come)
+│   ├── 5_sft/          # control.py: start / pause / resume / status / watch
+│   └── 6_agent/        # prepare.py, control.py, evaluate.py: tool calling   (7_dpo, 8_reasoning to come)
 ├── apps/
 │   ├── api/            # Flask: model serving with streaming
 │   └── web/            # React + Vite: ChatGPT-style interface

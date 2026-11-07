@@ -6,7 +6,7 @@ const DEBOUNCE_MS = 250; // while typing, ask at most once per pause
 // The context breakdown of the request that sending now would make: system instructions,
 // history (the same messages generate() sends) and the draft in the composer. Not refreshed
 // while an answer streams (paused); it catches up as soon as the answer is complete.
-export default function useContextUsage({ model, mode, system, maxTokens, messages, draft, paused }) {
+export default function useContextUsage({ model, mode, system, tools, maxTokens, messages, draft, paused }) {
   const [usage, setUsage] = useState(null);
   const history =
     mode === "chat"
@@ -15,7 +15,15 @@ export default function useContextUsage({ model, mode, system, maxTokens, messag
           .map(({ role, content }) => ({ role, content }))
       : [];
   const request = model
-    ? JSON.stringify({ model: model.name, mode, system: mode === "chat" ? system : "", max_tokens: maxTokens, messages: history, draft })
+    ? JSON.stringify({
+        model: model.name,
+        mode,
+        system: mode === "chat" ? system : "",
+        tools: mode === "chat" && tools,
+        max_tokens: maxTokens,
+        messages: history,
+        draft,
+      })
     : "";
 
   useEffect(() => {
