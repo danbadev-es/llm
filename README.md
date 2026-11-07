@@ -18,7 +18,7 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 5: SFT conversacional | ✅ | 86.088 conversaciones, contexto 2048, 3 épocas: loss de las respuestas 2,846 → **2,070** en 1 h 53 min · `phases/5_sft/control.py` |
 | 6: herramientas y agente | ✅ | calculadora, fecha y búsqueda en documentos, 8 min: **JSON válido 100 %, herramienta correcta 100 %, respuesta correcta 92 %** (450 preguntas nuevas) · `phases/6_agent/` |
 | 7: DPO | ✅ | 4.504 pares humana / Leon: respuestas en bucle 27 % → **16 %**, terminan solas 79 % → **89 %** · `phases/7_dpo/` |
-| 8: razonamiento | ⏳ entrenando | aritmética en 5 niveles: directo, con pasos, con pasos + GRPO · `phases/8_reasoning/` |
+| 8: razonamiento | ✅ con pasos · GRPO sin ejecutar | aritmética en 5 niveles: con 12.000 problemas por nivel resuelve paso a paso `(25 + 38) × 4` y problemas con palabras; sin pasos, `47 × 36` → 420 · `phases/8_reasoning/` |
 
 ## Inicio rápido
 

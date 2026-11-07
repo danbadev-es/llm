@@ -83,10 +83,40 @@ Parten del modelo de conversación más reciente (fase 7, 6 o 5). `pause`, `stat
 
 ## Resultados
 
-*Pendiente de ejecutar.* La cadena completa se probó en CPU con tamaños mínimos (3 pasos de ajuste, 2 de GRPO y la evaluación).
+Ejecutado el 2026-11-07, desde el modelo de la fase 7. **Se paró tras el ajuste con pasos**, porque era suficiente para el objetivo educativo: el GRPO y `evaluate.py` quedan como ejercicio (el código está probado de punta a punta en CPU).
+
+**Primer intento (4.000 problemas por nivel, 2 épocas)**: el modelo aprendió el **formato** a la perfección, pero no las **operaciones elementales**: "40 × 30 = 1600", "20 + 30 = 40", "140 + 28 = 160". La val loss era baja (0,155) porque casi todos los tokens son la plantilla; basta un dígito mal para fallar el problema. Acertaba el 4,5 % (200 problemas, *greedy*), y en el GRPO ningún grupo de 8 intentos tenía un acierto: sin aciertos no hay nada que reforzar (ventaja 0 en todos los grupos).
+
+**Segundo intento (12.000 problemas por nivel, 4 épocas, 11,7 min)**: val loss 0,0248, y las preguntas fijas, que no están en los datos, salen bien paso a paso:
+
+```
+¿Cuánto es (25 + 38) × 4?
+Primero el paréntesis: 25 + 38
+Decenas: 20 + 30 = 50
+Unidades: 5 + 8 = 13
+50 + 13 = 63
+Después: 63 × 4
+63 × 4 = 60 × 4 + 3 × 4 = 240 + 12 = 252
+```
+
+```
+Tengo 7 cajas con 24 lápices cada una y regalo 15 lápices. ¿Cuántos lápices me quedan?
+Lápices en total: 7 × 24
+24 × 7 = 20 × 7 + 4 × 7 = 140 + 28 = 168
+Me quedan: 168 − 15
+168 − 10 = 158
+158 − 5 = 151
+Respuesta: 151
+```
+
+`47 × 36` también acierta sus productos parciales (1410 y 282). El control sin pasos (`leon_0.1_direct`, primer conjunto de datos) responde "Respuesta: 420" a 47 × 36 (son 1692): sin escribir los pasos no tiene dónde hacer la cuenta.
+
+**Coste**: el modelo se especializa. A "Hola, ¿quién eres?" contesta "Como modelo de lenguaje, no tengo la capacidad de conocer el contexto…": 3.000 conversaciones mezcladas no bastan frente a 57.000 problemas. Para conversar, el modelo de la fase 7.
 
 | Modelo | Nivel 1 | Nivel 2 | Nivel 3 | Nivel 4 | Nivel 5 |
 |---|---|---|---|---|---|
 | Directo | | | | | |
 | Con pasos | | | | | |
 | Con pasos + GRPO | | | | | |
+
+*(Pendiente: `python phases/8_reasoning/evaluate.py` y `control.py grpo`.)*

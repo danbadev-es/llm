@@ -5,6 +5,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Resultados
+- **Fase 8: razonamiento paso a paso** (2026-11-07): con 4.000 problemas por nivel aprendió el formato pero no las tablas (4,5 % de aciertos, y el GRPO no tenía aciertos que reforzar); con 12.000 por nivel y 4 épocas (11,7 min) resuelve bien las preguntas fijas paso a paso. El proyecto se para aquí por decisión del usuario: GRPO y evaluación por niveles quedan como ejercicio.
 - **Fase 7: DPO** (2026-11-07): 4.504 pares (respuesta humana frente a la de Leon), 281 pasos en 3,5 min. Pérdida en val 0,693 → 0,449, precisión de la recompensa 0,93. Respuestas en bucle 27 % → 16 %, terminan solas 79 % → 89 %; sigue inventando datos.
 - **Fase 6: herramientas** (2026-11-07): 384 pasos en 7,9 min; val loss 2,157 → 0,874. En 450 preguntas nuevas: JSON válido 100 %, herramienta correcta 100 %, respuesta correcta 92 % (calculadora 99 %, fecha 100 %, documentos 95 %; "no encontrado" solo 44 %: cita pasajes irrelevantes en vez de decir que no hay nada).
 - **Fase 5: SFT terminado** (2026-11-07): 4.863 pasos, 3 épocas de 86.088 conversaciones a contexto 2048, desde la extensión de la fase 4. Loss de las respuestas 2,846 → **2,070** (perplejidad 7,9) en 1 h 53 min. `checkpoints/5_sft/leon_0.1_chat/best.pt` saluda, responde preguntas sencillas ("La capital de Francia es París.") y sigue inventando datos.
