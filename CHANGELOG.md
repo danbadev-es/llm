@@ -16,6 +16,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
   - **Extensión a 2048** (`leon_0.1_ctx2048`, 151M de tokens, 1 h 12 min): la loss en las posiciones 1024–2047 de artículos largos queda 0,17 por debajo de la de 0–1023 (−0,07 antes); Quijote 1,657 bits/byte.
 
 ### Añadido
+- **Temperatura por defecto 0,5** en la web (antes 0,8): con 56M de parámetros, a 0,8 se desvía a frases sin sentido y por debajo de ~0,4 se repite. Los ajustes guardados con el valor por defecto antiguo se actualizan solos.
 - **Fase 8, razonamiento** (lista para ejecutar): `phases/8_reasoning/prepare.py` genera aritmética de 5 niveles con soluciones paso a paso (productos de una cifra, sumas de números redondos) y la versión directa como control; `train.py` (con `leon.sft`), `grpo.py` y `leon/grpo.py` (recompensa verificable, ventaja por grupo, KL hacia la referencia), `evaluate.py` (aciertos por nivel).
 - **Fase 7, DPO** (lista para ejecutar cuando la GPU esté libre): `leon/dpo.py` (pérdida DPO, log-probabilidades de una respuesta); `phases/7_dpo/prepare.py` genera los pares con el propio Leon (respuesta humana frente a la suya, 4 muestras por pregunta en un batch, reanudable); `train.py` con referencia congelada precalculada; `evaluate.py` (repeticiones, respuestas terminadas, longitud). El panel común muestra `Metrics` (precisión de la recompensa, margen).
 - **Fase 6, herramientas** (lista para entrenar cuando la GPU esté libre):
