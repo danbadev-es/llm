@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { XIcon } from "lucide-react";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -29,7 +30,16 @@ function SliderField({ id, label, hint, value, display, min, max, step, onChange
           {display}
         </output>
       </div>
-      <Slider id={id} value={value} min={min} max={max} step={step} aria-describedby={`${id}-hint`} onValueChange={([v]) => onChange(v)} />
+      <Slider
+        id={id}
+        value={[value]}
+        min={min}
+        max={max}
+        step={step}
+        className="py-2"
+        aria-describedby={`${id}-hint`}
+        onValueChange={([v]) => onChange(v)}
+      />
       <Hint id={`${id}-hint`}>{hint}</Hint>
     </div>
   );
@@ -42,7 +52,13 @@ export default function SettingsDialog({ open, onClose, settings, onChange, maxT
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="gap-6 sm:max-w-[30rem]">
+      {/* The close button is ours: shadcn's default one is labelled "Close", in English. */}
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-2rem)] gap-6 overflow-y-auto rounded-xl bg-popover sm:max-w-[30rem]">
+        <DialogClose asChild>
+          <Button variant="ghost" size="icon-sm" className="absolute top-3.5 right-3.5 text-muted-foreground" aria-label="Cerrar">
+            <XIcon />
+          </Button>
+        </DialogClose>
         <DialogHeader>
           <DialogTitle>Ajustes</DialogTitle>
           <DialogDescription className="sr-only">Generación, instrucciones del sistema y atajos de teclado</DialogDescription>

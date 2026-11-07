@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 
 const MODE_LABEL = { complete: "Completar", chat: "Chat" };
 
@@ -77,10 +77,10 @@ export default function ConversationItem({ conversation, active, onSelect, onRen
           <Button
             variant="ghost"
             size="icon-xs"
-            className="absolute right-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-background hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute right-1 size-7 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-background hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
             aria-label={`Opciones de «${conversation.title}»`}
           >
-            <EllipsisIcon />
+            <EllipsisIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

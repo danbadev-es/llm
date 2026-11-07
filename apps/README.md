@@ -15,12 +15,10 @@ apps/
     ├── src/api.js               cliente: traduce /v1 (Anthropic) y /api/conversations a la forma de la app
     ├── src/format.js            estadísticas de cada respuesta y grupos del historial por fecha
     ├── src/preferences.js       ajustes, último modelo y modo (localStorage)
-    ├── src/lib/utils.js         cn(): une clases de Tailwind (clsx + tailwind-merge)
     ├── src/hooks/               useAutoScroll, useMediaQuery, useContextUsage
     ├── src/components/          Sidebar, ConversationItem, Header, Thread, Message, Welcome,
-    │                            Composer, ContextMeter, SettingsDialog
-    └── src/components/ui/       componentes de shadcn/ui (button, dialog, alert-dialog, dropdown-menu,
-                                 select, toggle-group, tooltip, popover, slider, sheet, sonner…)
+    │                            Composer, ContextMeter, SettingsDialog, WithTooltip
+    └── src/components/ui/       componentes de shadcn/ui tal como los genera su CLI (no se editan a mano)
 ```
 
 ## Uso
@@ -78,8 +76,17 @@ Vite reenvía las peticiones `/api` a Flask. Si la API está en otro puerto: `$e
   | `Esc` | Detener la respuesta, o cerrar el menú, el diálogo o el panel lateral |
 
 - **Accesibilidad**: los diálogos, menús, selector y panel lateral son primitivas de Radix (vía shadcn/ui), que atrapan el foco, se manejan con teclado y llevan sus roles ARIA. El anillo de foco solo aparece con teclado, los avisos se anuncian a los lectores de pantalla y el contraste es suficiente en ambos temas. Las animaciones son sutiles y desaparecen con `prefers-reduced-motion`.
-- **Estilos**: Tailwind CSS v4 (plugin de Vite) con los componentes de [shadcn/ui](https://ui.shadcn.com), escritos en JavaScript en `src/components/ui/` sobre `radix-ui`.
-  - Son código del proyecto, no una dependencia: se pueden cambiar a mano.
+- **Estilos**: Tailwind CSS v4 (plugin de Vite) con los componentes de [shadcn/ui](https://ui.shadcn.com), en JavaScript, sobre `radix-ui`.
+  - Los genera el CLI oficial (`components.json` lo configura para JavaScript):
+
+    ```powershell
+    cd apps/web
+    npx shadcn@latest add <componente>              # p. ej. tabs
+    npx shadcn@latest add --overwrite <componente>  # actualizarlo a la última versión del registro
+    ```
+
+  - `src/components/ui/` se deja tal como sale del CLI, para poder actualizarlo con `--overwrite`. Los ajustes de la app van en las clases que se pasan a cada componente.
+  - `cn()` (unir clases de Tailwind) viene del paquete `cn`, de shadcn, que es el que usa ahora su registro.
   - **Temas**: claro y oscuro según el sistema (`prefers-color-scheme`). Los colores son las variables de shadcn (`--background`, `--primary`, `--muted`…) más las propias de Leon (`--bubble`, `--prompt`, `--ctx-*`), definidas en `src/index.css` y usadas como clases (`bg-primary`, `text-muted-foreground`).
 - **Móvil** (hasta 360 px): por debajo de 768 px el lateral se abre como panel (Sheet) con ☰, y lo que queda detrás no recibe foco ni clics.
 

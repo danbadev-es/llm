@@ -1,8 +1,8 @@
 import { CheckIcon, CircleAlertIcon, CopyIcon, PencilIcon, RotateCcwIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { WithTooltip } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import WithTooltip from "./WithTooltip.jsx";
+import { cn } from "cn";
 import { formatStats } from "../format.js";
 import { isSendKey, useAutoGrow } from "./Composer.jsx";
 

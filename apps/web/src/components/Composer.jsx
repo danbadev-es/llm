@@ -1,8 +1,8 @@
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { WithTooltip } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import WithTooltip from "./WithTooltip.jsx";
+import { cn } from "cn";
 
 const MAX_HEIGHT = 220; // px; past this the text area scrolls instead of growing
 

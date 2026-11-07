@@ -35,16 +35,23 @@ export default function Header({ models, model, modelsState, onModelChange, mode
       </Button>
 
       <Select value={model?.name ?? ""} onValueChange={onModelChange} disabled={models.length === 0}>
-        <SelectTrigger aria-label="Modelo" className="min-w-0 flex-1 font-semibold hover:bg-accent md:max-w-xs md:flex-none">
-          <SelectValue placeholder={placeholder} />
+        <SelectTrigger
+          aria-label="Modelo"
+          className="min-w-0 flex-1 border-0 bg-transparent font-semibold shadow-none hover:bg-accent md:max-w-xs md:flex-none dark:bg-transparent dark:hover:bg-accent [&_svg:not([class*='text-'])]:text-foreground"
+        >
+          {/* The closed picker shows only the short name; the list adds each model's details. */}
+          <SelectValue placeholder={placeholder}>{model && groupModels([model])[0][1][0].label}</SelectValue>
         </SelectTrigger>
-        <SelectContent align="start" className="max-w-[calc(100vw-1rem)]">
+        <SelectContent position="popper" align="start" className="max-w-[calc(100vw-1rem)]">
           {groupModels(models).map(([group, items]) => (
             <SelectGroup key={group}>
               <SelectLabel>{group || "Modelos"}</SelectLabel>
               {items.map((m) => (
-                <SelectItem key={m.name} value={m.name} description={modelDetails(m)}>
-                  {m.label}
+                <SelectItem key={m.name} value={m.name} textValue={m.label}>
+                  <span className="flex flex-col items-start gap-0">
+                    <span>{m.label}</span>
+                    <span className="text-xs text-muted-foreground">{modelDetails(m)}</span>
+                  </span>
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -55,14 +62,20 @@ export default function Header({ models, model, modelsState, onModelChange, mode
       <ToggleGroup
         type="single"
         aria-label="Modo"
-        className="ml-auto"
+        spacing={0.5}
+        className="ml-auto rounded-lg bg-muted p-0.5"
         value={mode}
         onValueChange={(value) => value && onModeChange(value)} // clicking the active mode keeps it
       >
         {/* A plain title, not a Radix Tooltip: the tooltip trigger would overwrite the item's
             data-state="on", which is what marks the active mode. */}
         {MODES.map(([value, text, description]) => (
-          <ToggleGroupItem key={value} value={value} title={description} className="px-2.5 sm:px-3">
+          <ToggleGroupItem
+            key={value}
+            value={value}
+            title={description}
+            className="h-8 rounded-md px-2.5 text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs sm:px-3"
+          >
             {text}
           </ToggleGroupItem>
         ))}

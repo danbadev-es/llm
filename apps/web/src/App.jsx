@@ -374,7 +374,7 @@ export default function App() {
     ) : null;
 
   return (
-    <TooltipProvider>
+    <TooltipProvider delayDuration={400}>
     <div className="flex h-dvh overflow-hidden">
       <Sidebar
         isPhone={isPhone}

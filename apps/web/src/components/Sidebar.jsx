@@ -115,7 +115,7 @@ export default function Sidebar({ isPhone, open, onOpenChange, onDelete, ...prop
     <>
       {isPhone ? (
         <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent side="left" className="w-[min(300px,86vw)]">
+          <SheetContent side="left" showCloseButton={false} className="w-[min(300px,86vw)] gap-0 border-r-0">
             <SheetTitle className="sr-only">Menú</SheetTitle>
             <SheetDescription className="sr-only">Historial de conversaciones y ajustes</SheetDescription>
             <SidebarContent {...props} onAskDelete={setToDelete} onClose={() => onOpenChange(false)} />
@@ -128,7 +128,7 @@ export default function Sidebar({ isPhone, open, onOpenChange, onDelete, ...prop
       )}
 
       <AlertDialog open={toDelete !== null} onOpenChange={(next) => !next && setToDelete(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-xl bg-popover sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar conversación?</AlertDialogTitle>
             <AlertDialogDescription>
