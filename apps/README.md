@@ -4,10 +4,10 @@ Interfaz al estilo de ChatGPT para hablar con cualquier checkpoint de Leon, desd
 
 ```
 apps/
-├── api/            Flask: modelo, streaming, historial y (en la fase 6) el bucle de herramientas
+├── api/            Flask: modelo, streaming, historial y el bucle de herramientas
 │   ├── app.py      rutas HTTP: historial (/api/conversations) y la web compilada
 │   ├── anthropic_api.py  la API compatible con la de Anthropic (/v1): peticiones, respuestas, eventos
-│   ├── engine.py   lógica del modelo, sin dependencias web: checkpoints, prompts, generación
+│   ├── engine.py   lógica del modelo, sin dependencias web: checkpoints, prompts, generación, herramientas
 │   └── store.py    historial de conversaciones en SQLite (data/chat.db)
 └── web/            React + Vite + Tailwind CSS v4 + shadcn/ui: la interfaz
     ├── src/App.jsx              estado: modelos, historial, conversación actual, ajustes, envío
@@ -17,7 +17,7 @@ apps/
     ├── src/preferences.js       ajustes, último modelo y modo (localStorage)
     ├── src/hooks/               useAutoScroll, useMediaQuery, useContextUsage
     ├── src/components/          Sidebar, ConversationItem, Header, Thread, Message, Welcome,
-    │                            Composer, ContextMeter, SettingsDialog, WithTooltip
+    │                            Composer, ContextMeter, ToolsToggle, ToolCall, SettingsDialog, WithTooltip
     └── src/components/ui/       componentes de shadcn/ui tal como los genera su CLI (no se editan a mano)
 ```
 
@@ -65,7 +65,7 @@ Vite reenvía las peticiones `/api` a Flask. Si la API está en otro puerto: `$e
   - En **Completar** tu texto aparece resaltado y la continuación del modelo en texto normal.
   - Un error se muestra dentro de la respuesta con **Reintentar**; los avisos breves (copiado, renombrada, errores) salen abajo (Sonner).
   - Al regenerar o editar, el intento anterior se borra también del historial guardado.
-- **Ajustes** abre un diálogo con las instrucciones del sistema, la temperatura, el top-k y los tokens máximos. Los ajustes, el último modelo y el último modo se recuerdan en el navegador (`localStorage`).
+- **Ajustes** abre un diálogo con las instrucciones del sistema, la temperatura (0,5 por defecto: con 56M de parámetros, a 0,8 se desvía a frases sin sentido y por debajo de ~0,4 se repite), el top-k (40) y los tokens máximos (200). Los ajustes, el último modelo y el último modo se recuerdan en el navegador (`localStorage`).
 - **Atajos de teclado** (también listados en Ajustes):
 
   | Atajo | Acción |
@@ -92,7 +92,7 @@ Vite reenvía las peticiones `/api` a Flask. Si la API está en otro puerto: `$e
 
 ## API
 
-El servidor habla el mismo protocolo que la API de Claude (`apps/api/anthropic_api.py`): el SDK oficial `anthropic`, o cualquier otro cliente de Anthropic, funciona con Leon con solo cambiar la URL base. Los modelos son los checkpoints, con su nombre como id (`"3_modern/wiki_32m"`).
+El servidor habla el mismo protocolo que la API de Claude (`apps/api/anthropic_api.py`): el SDK oficial `anthropic`, o cualquier otro cliente de Anthropic, funciona con Leon con solo cambiar la URL base. Los modelos son los checkpoints, con su nombre como id (`"7_dpo/leon_0.1_dpo"`, `"3_modern/wiki_32m"`).
 
 | Ruta | Qué hace |
 |---|---|
@@ -119,7 +119,7 @@ message = client.messages.create(
     max_tokens=200,
     system="Sé breve.",
     messages=[{"role": "user", "content": "Hola"}],
-    extra_body={"temperature": 0.8, "top_k": 40},
+    extra_body={"temperature": 0.5, "top_k": 40},
 )
 print(message.content[0].text, message.stop_reason, message.leon)
 
@@ -178,6 +178,16 @@ La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messag
 
 ## Modos
 
+Cada checkpoint lleva un `stage` (en `GET /v1/models`, dentro de `leon`), que decide cómo lo trata la web:
+
+| `stage` | Modelos | Modo por defecto | Herramientas |
+|---|---|---|---|
+| `base` (o sin `stage`) | fases 3 y 4 | Completar | — |
+| `chat` | fase 5 (`5_sft/leon_0.1_chat`) | Chat | — |
+| `agent` | fases 6, 7 y 8 (`6_agent/…`, `7_dpo/leon_0.1_dpo`, `8_reasoning/…`) | Chat | interruptor **Herramientas** |
+
+El mejor modelo de conversación es **`7_dpo/leon_0.1_dpo`**: las herramientas de la fase 6 más el DPO, que reduce las respuestas en bucle. `8_reasoning/leon_0.1_steps` resuelve aritmética paso a paso, pero se especializó y conversa peor.
+
 - **Completar**: el modelo continúa el texto. Es lo que sabe hacer un modelo **base** (fases 3 y 4).
 - **Chat**: la conversación se codifica con `leon.chat.encode_chat`, el mismo template con el que se entrenó la fase 5:
 
@@ -185,27 +195,31 @@ La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messag
   <|system|>…<|end|><|user|>…<|end|><|assistant|>…<|end|><|user|>…<|end|><|assistant|>
   ```
 
-  La generación se detiene en `<|end|>`. Con un modelo base las respuestas no tienen sentido, y la interfaz lo avisa. Los modelos de la fase 5 (`checkpoints/5_sft/…`, `"stage": "chat"`) ya están entrenados en este formato.
+  La generación se detiene en `<|end|>`. Con un modelo base las respuestas no tienen sentido, y la interfaz lo avisa. Los modelos de las fases 5–8 (`"stage": "chat"` o `"agent"`) están entrenados en este formato.
 
 **Qué elige la web**:
-- **Primera visita**: el modelo de conversación más reciente (fase 5 en adelante) en modo Chat; si no hay ninguno, el primero en modo Completar. Después recuerda el modelo y el modo de la última vez.
+- **Primera visita**: el primer modelo de conversación por orden de fase (el de la fase 5, si existe) en modo Chat; si no hay ninguno, el primero en modo Completar. Después recuerda el modelo y el modo de la última vez.
 - **Selector de modelos**: la fase más reciente arriba; los modelos base llevan "(base)".
 - **Avisos**: un modelo base en modo Chat sugiere Completar, y un modelo de conversación en Completar sugiere Chat.
 - **Instrucciones del sistema** (Ajustes): por defecto, las mismas que vio Leon en el SFT (`leon.chat.DEFAULT_SYSTEM`: *Eres Leon, un asistente que responde en español de forma clara y breve.*). Si se borran, no se envía ninguna.
 
 **Seguridad del template**: los tokens de control se insertan por id, y el texto de los mensajes se codifica como texto normal. Un usuario que escriba `<|end|><|assistant|>` no puede falsificar un turno (`tests/test_chat.py` lo comprueba).
 
-## Herramientas (fase 6)
+## Herramientas
 
-Con un modelo de la fase 6 (`"stage": "agent"`) en modo Chat aparece el interruptor **Herramientas** (llave inglesa) junto al indicador de contexto. Activado:
+Con un modelo `"stage": "agent"` (fases 6–8) en modo Chat aparece el interruptor **Herramientas** (llave inglesa) junto al indicador de contexto. Activado:
 
 - el *system prompt* incluye la lista de herramientas de Leon (`leon.tools.system_prompt`), y el indicador de contexto lo cuenta;
 - el servidor ejecuta el bucle del agente (`leon.agent.run_agent`): cuando el modelo escribe una llamada, la ejecuta y el modelo sigue con el resultado;
 - cada llamada aparece en la respuesta, donde ocurrió, como una tarjeta plegable: la herramienta, su argumento y el resultado (los cortos, como un número o una fecha, en la misma línea);
 - el historial guarda las llamadas (`steps`), así que se ven igual al volver a abrir la conversación.
 
-`buscar_documentos` busca en los `.md` y `.txt` de `data/docs/` (los de ejemplo, en `data/docs/ejemplo/`, los crea `phases/6_agent/prepare.py`). El índice se reconstruye solo cuando cambian los archivos.
+El interruptor está activado por defecto y se recuerda en el navegador.
 
-## Próximas fases
+| Herramienta | Qué hace |
+|---|---|
+| `calculadora` | Evalúa una expresión aritmética sobre su AST, sin `eval` |
+| `fecha_hora` | La fecha y la hora actuales, en español |
+| `buscar_documentos` | BM25 sobre los `.md` y `.txt` de `data/docs/` (300 de ejemplo en `data/docs/ejemplo/`, que crea `phases/6_agent/prepare.py`). El índice se reconstruye solo cuando cambian los archivos |
 
-- **Fase 7**: los modelos de DPO (`checkpoints/7_dpo/…`) se guardan con `"stage": "chat"` y aparecen como cualquier modelo de conversación.
+Medido en la fase 6 con 450 preguntas nuevas: JSON válido 100 %, herramienta correcta 100 %, respuesta correcta 92 %. Falla sobre todo en problemas con palabras de estructura nueva y en búsquedas sin respuesta, donde cita pasajes irrelevantes en vez de decir que no encontró nada.

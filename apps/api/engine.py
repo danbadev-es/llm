@@ -89,7 +89,7 @@ class Engine:
             models.append(
                 {
                     "name": name,
-                    "stage": ckpt.get("stage", "base"),  # phase 5 checkpoints will be saved with stage="chat"
+                    "stage": ckpt.get("stage", "base"),  # base (3-4), chat (5), agent (6-8: tools)
                     "params": sum(t.numel() for k, t in ckpt["model"].items() if k != "lm_head.weight"),  # tied
                     "context": config.block_size,
                     "max_new_tokens": config.block_size // 2,  # the rest of the context is for the prompt

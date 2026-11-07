@@ -45,6 +45,8 @@ python phases/7_dpo/control.py start                  # entrenamiento DPO
 python phases/7_dpo/evaluate.py                       # antes y después
 ```
 
+Los resultados de abajo usaron menos preguntas y más muestras que los valores por defecto: `control.py prepare -- --prompts 1200 --samples 8 --keep 4 --max-new-tokens 160`.
+
 `prepare` se puede pausar (`pause --run prepare`) y volver a lanzar: retoma donde lo dejó, porque cada par se escribe en `data/dpo/pairs.jsonl` según se genera. Al terminar, reparte los pares en `data/dpo/{train,val}.jsonl` (5 % de validación, por pregunta).
 
 Parte del modelo de la fase 6 si existe; si no, del de la fase 5 (`--base` y `--policy` lo cambian).
@@ -73,7 +75,7 @@ Ejecutado el 2026-11-07 desde el modelo de la fase 6 (`6_agent/leon_0.1_agent`).
 | Respuestas en bucle en los pares | 22 % de las de Leon, 4 % de las humanas |
 | Pérdida DPO en val, inicio → final | 0,6931 → **0,449** |
 | Precisión de la recompensa en val | 0,5 → **0,93** (margen 0,64) |
-| Respuestas en bucle, antes → después | 27 % → **16 %** (62 preguntas nuevas, temperatura 0,8) |
+| Respuestas en bucle, antes → después | 27 % → **16 %** (las 62 preguntas distintas de los 248 pares de validación, a 4 respuestas por pregunta; temperatura 0,8) |
 | Respuestas que terminan solas, antes → después | 79 % → **89 %** |
 | Palabras por respuesta, antes → después | 88 → 62 |
 | Tiempo de GPU | ~35 min para los pares, 3,5 min de entrenamiento |

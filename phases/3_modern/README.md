@@ -10,7 +10,7 @@ Por primera vez el modelo se entrena con el tokenizer BPE de la fase 2, leyendo 
 
 | Archivo | Contenido |
 |---|---|
-| [`leon/model.py`](../../leon/model.py) | `Leon`: `RMSNorm`, RoPE (`precompute_rope`, `apply_rope`), `Attention` con GQA, `SwiGLU`, `KVCache`, `stream`/`generate`. Vive en el paquete `leon` porque es la arquitectura de Leon 0.1 que usarán las fases 4–6 y el chat |
+| [`leon/model.py`](../../leon/model.py) | `Leon`: `RMSNorm`, RoPE (`precompute_rope`, `apply_rope`), `Attention` con GQA, `SwiGLU`, `KVCache`, `stream`/`generate`. Vive en el paquete `leon` porque es la arquitectura de Leon 0.1 que usan las fases 4–8 y el chat |
 | [`leon/training.py`](../../leon/training.py) | `lr_at`, `bits_per_byte`, `save_checkpoint`/`load_checkpoint`: guardado atómico con estado del RNG, para que `--resume` continúe exactamente donde se quedó |
 | [`leon/data.py`](../../leon/data.py) | `TokenFile`: lee los `.bin` uint16 con `np.memmap` y sabe sus bytes/token (para bits por byte) |
 | `train.py` | Bucle de entrenamiento de la fase 1 con datos en disco, bits/byte, TFLOP/s y evaluación cruzada en el Quijote |
@@ -26,7 +26,7 @@ Por primera vez el modelo se entrena con el tokenizer BPE de la fase 2, leyendo 
 - **GQA (Grouped-Query Attention)**: 8 cabezas de query comparten 4 cabezas de key/value. Durante el entrenamiento ahorra poco; en generación reduce a la mitad el **KV cache**.
 - **KV cache**: al generar, las keys y values de los tokens anteriores no cambian. Se guardan y cada paso solo procesa el token nuevo. `test_kv_cache_matches_full_forward` comprueba que da exactamente los mismos logits.
 - **Sin biases** en las capas lineales.
-- **`ignore_index=-100`** en la loss: hoy no se usa; en la fase 5 permitirá no entrenar sobre los turnos del usuario.
+- **`ignore_index=-100`** en la loss: aquí no se usa; en la fase 5 (`leon/sft.py`) es lo que evita entrenar sobre los turnos del usuario.
 - **Bits por byte**: `loss / ln 2 / (bytes/token)`. Con un tokenizer distinto, es la única forma de comparar con las fases 0 y 1.
 - **El coste del vocabulario**: con 16.384 tokens, los logits de un micro-batch de 16k tokens son 268M de números. En fp32, con su log-softmax y su gradiente, ocupan ~3,5 GiB. Por eso los micro-batches son pequeños (4.096 tokens) y el batch efectivo se consigue con gradient accumulation.
 - **`torch.compile`**: fusiona las operaciones elemento a elemento (RMSNorm, RoPE, SwiGLU, softmax de la loss) en menos kernels, con menos lecturas y escrituras de memoria. En Windows necesita `triton-windows` (incluido en `pip install -e ".[compile]"`).
@@ -164,6 +164,6 @@ Misma escala que la fase 1 (6 capas, d = 384, contexto 256, dropout 0,2), entren
 - **Coste**: ~13–14 h de GPU a ~42k tok/s (medición final, ver arriba), es decir, **2 noches** con `--resume`. En la validación de 32M, el throughput sostenido estuvo a un 1–5 % del benchmark en frío.
 - **Tokens por parámetro**: ~36, por encima del óptimo de Chinchilla (20). Para un modelo que se va a usar mucho en inferencia conviene entrenar más allá de ese punto.
 - **Contexto 1024**: las fases 5 y 6 necesitan conversaciones de 3–5 turnos más resultados de herramientas. Cuesta un ~10 % más que 512.
-- **Datos**: Wikipedia completa da ~1,4B tokens, así que 2B tokens son ~1,4 épocas. Repetir datos hasta ~4 épocas apenas perjudica, pero la fase 4 valorará añadir otra fuente (libros, noticias) para variar el registro.
+- **Datos**: Wikipedia completa da ~1,4B tokens, así que 2B tokens son ~1,4 épocas. Repetir datos hasta ~4 épocas apenas perjudica, así que la fase 4 se quedó solo con Wikipedia (1,47 épocas).
 - **Alternativa más barata**: d = 512 con 12 capas (44M), ~12 h. Las profundidades mayores suelen rendir mejor a igual tamaño en modelos pequeños, así que es un candidato serio si se quiere ahorrar una noche.
 

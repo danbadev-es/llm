@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Sustituir el tokenizer de caracteres por un **BPE a nivel de byte** entrenado con Wikipedia en español. Es el tokenizer definitivo de Leon 0.1: se usará sin cambios en el preentrenamiento (fase 4), el SFT (fase 5) y el tool calling (fase 6).
+Sustituir el tokenizer de caracteres por un **BPE a nivel de byte** entrenado con Wikipedia en español. Es el tokenizer definitivo de Leon 0.1: se usa sin cambios desde el preentrenamiento (fase 4) hasta el razonamiento (fase 8), en su versión v2 (ver más abajo).
 
 Además, esta fase deja los corpus **ya tokenizados en disco** (`.bin` de uint16), listos para leerse con `np.memmap` sin cargarlos en RAM.
 
@@ -43,7 +43,7 @@ python phases/2_tokenizer/encode.py
 
 Para más datos: `prepare.py --shards 0 1 2`. Para comparar tamaños de vocabulario: `train_tokenizer.py --vocab-size 8192 --output data/tokenizer/bpe8k.json` e `inspect_tokenizer.py --tokenizer data/tokenizer/bpe8k.json`.
 
-El tokenizer queda en `data/tokenizer/leon_bpe.json`, con `leon_bpe.vocab.txt` al lado para leer el vocabulario token a token.
+El tokenizer queda en `data/tokenizer/leon_bpe_v2.json` (la versión predeterminada, `TOKENIZER_PATH` en `leon/paths.py`), con `leon_bpe_v2.vocab.txt` al lado para leer el vocabulario token a token.
 
 ### Paso a paso
 
@@ -61,7 +61,7 @@ El tokenizer queda en `data/tokenizer/leon_bpe.json`, con `leon_bpe.vocab.txt` a
 
 - [ ] Entrenar con `--vocab-size 4096`, `8192` y `32768`, y apuntar bytes/token en Wikipedia val y en el Quijote. ¿Dónde se aplana la curva?
 - [ ] Entrenar con `--train-mchars 10` frente a `100`. ¿Cambia mucho la compresión? ¿Por qué basta con una muestra?
-- [ ] Quitar la pre-tokenización (usar un patrón que devuelva el texto entero) y ver qué tokens aparecen en `leon_bpe.vocab.txt`.
+- [ ] Quitar la pre-tokenización (usar un patrón que devuelva el texto entero) y ver qué tokens aparecen en `leon_bpe_v2.vocab.txt`.
 - [ ] Cambiar `\d{1,3}` por `\d+` y mirar cuántos tokens del vocabulario acaban siendo números.
 - [ ] Modificar la regex para que `¿` y `¡` no dejen la palabra siguiente sin espacio, y medir el efecto en la compresión.
 - [ ] Calcular a mano los bits/byte del modelo de la fase 1 a partir de sus bits/char y de los bytes/char del Quijote.

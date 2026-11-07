@@ -22,7 +22,7 @@ Generar texto es repetir tres pasos: muestrear un token de esa distribución, a�
 ## 2. El ciclo de vida completo
 
 ```
-Texto bruto → Tokenizer → Preentrenamiento → Modelo base → SFT → Modelo chat → SFT tools → Modelo agéntico
+Texto bruto → Tokenizer → Preentrenamiento → Modelo base → SFT → Modelo chat → SFT tools → Modelo agéntico → DPO → Razonamiento
                                                                                        ↑
                                                                          Runtime (bucle + tools)
 ```
@@ -121,6 +121,8 @@ Es el núcleo y el bloque que más tiempo merece. Piezas:
 | 4 Preentrenamiento | E, B a escala |
 | 5 SFT | F (chat template, masking) |
 | 6 Agente | F (tool calling, runtime) |
+| 7 DPO | F (preferencias), B (modelo de referencia, log-probabilidades) |
+| 8 Razonamiento | F (pasos intermedios, refuerzo con recompensa verificable) |
 
 No hace falta estudiar todo antes de empezar. Cada fase introduce lo que necesita.
 
@@ -140,7 +142,7 @@ No hace falta estudiar todo antes de empezar. Cada fase introduce lo que necesit
 
 ### Criterios de éxito medibles
 
-Estos umbrales son orientativos. Se ajustarán cuando haya datos reales.
+Se fijaron antes de entrenar, como orientación. El resultado medido está en [Resultado](#resultado).
 
 | Criterio | Meta |
 |---|---|
@@ -151,13 +153,33 @@ Estos umbrales son orientativos. Se ajustarán cuando haya datos reales.
 
 ### Restricción de hardware
 
-Todo se entrena en local, sin GPUs alquiladas. Para orientarse: el coste de entrenar es aproximadamente `6 × parámetros × tokens` FLOPs. Con 50M de parámetros y 2B de tokens salen ~6·10¹⁷ FLOPs. Medido en la fase 3 con la arquitectura definitiva y `torch.compile`, la RTX 5060 Laptop sostiene **~15 TFLOP/s efectivos** en bf16, incluso con *thermal throttling*. Para el tamaño elegido (56M de parámetros, contexto 1024) son ~42k tok/s, es decir, **~13–14 horas para 2B tokens**: dos noches. El detalle está en `phases/3_modern/README.md`.
+Todo se entrena en local, sin GPUs alquiladas. Para orientarse: el coste de entrenar es aproximadamente `6 × parámetros × tokens` FLOPs. Con 50M de parámetros y 2B de tokens salen ~6·10¹⁷ FLOPs. Medido en la fase 3 con la arquitectura definitiva y `torch.compile`, la RTX 5060 Laptop sostiene **~15 TFLOP/s efectivos** en bf16, incluso con *thermal throttling*. Para el tamaño elegido (56M de parámetros, contexto 1024) son ~42k tok/s, es decir, **~13–14 horas para 2B tokens**: dos noches. El preentrenamiento real (fase 4) sostuvo ~45.500 tok/s y tardó 12,5 h en una sola sesión. El detalle está en `phases/3_modern/README.md` y `phases/4_pretrain/README.md`.
 
 ### Expectativas honestas
 
 - **Va a alucinar mucho en conocimiento factual.** Con este tamaño y estos datos, el modelo sabe poco del mundo. Su fuerte será el formato y la fluidez, no los hechos. Por eso la tool de búsqueda en documentos tiene sentido: compensa justo esa debilidad, y es la misma lógica que usan los sistemas reales (RAG).
 - **El tool calling funcionará en tareas parecidas a las del entrenamiento**, no en tareas nuevas. Comprobar dónde está ese límite es en sí una de las lecciones del proyecto.
 - **No se parecerá a ChatGPT.** La diferencia es de varios órdenes de magnitud en datos y cómputo, y entender por qué es otro de los aprendizajes.
+
+Las tres se cumplieron: ver la tabla siguiente.
+
+### Resultado
+
+El proyecto se dio por terminado tras la fase 8, por ser suficiente para el objetivo educativo. Leon 0.1 tiene 56M de parámetros (d = 640, 10 capas, GQA 10/5), un tokenizer BPE propio de 16.384 tokens y 2,0B tokens de preentrenamiento en la Wikipedia en español, todo entrenado en la RTX 5060 Laptop. El mejor modelo de chat es `checkpoints/7_dpo/leon_0.1_dpo/best.pt`.
+
+| Criterio | Meta | Medido | |
+|---|---|---|---|
+| Tool calls con JSON válido | > 95 % | **100 %** (450 preguntas nuevas, fase 6) | ✅ |
+| Elección correcta de tool | > 80 % | **100 %** | ✅ |
+| Tareas agénticas completadas (respuesta final correcta) | > 60 % | **92 %**: calculadora 99 %, fecha 100 %, documentos 95 %, sin herramienta 99 %; "no encontrado" solo 44 % | ✅ |
+| Calidad conversacional | Set fijo de ~50 prompts, fase a fase | No se hizo como set manual. En su lugar: preguntas fijas en cada evaluación de las fases 5–8 y, en la fase 7, 62 preguntas nuevas: respuestas en bucle 27 % → 16 %, terminan solas 79 % → 89 % | Parcial |
+| Conversaciones cortas, gramaticales y coherentes | 3–5 turnos | Español fluido y respuestas sencillas correctas ("La capital de Francia es París."), pero inventa datos; no se midieron conversaciones de varios turnos | Parcial |
+
+Lo que confirma cada expectativa:
+
+- **Alucina en hechos**: también después del DPO, que reduce los bucles y alarga menos las respuestas (88 → 62 palabras), pero no le enseña lo que no sabe.
+- **Las herramientas funcionan en lo parecido al entrenamiento**: falla en problemas con palabras de estructura nueva ("le quedan 96, que son 27 menos de los que tenía" da una expresión equivocada) y en búsquedas sin respuesta, donde BM25 devuelve pasajes irrelevantes y el modelo los cita.
+- **Razonar exige saber las piezas**: en la fase 8, con 4.000 problemas por nivel aprendió el formato de los pasos pero no las tablas (4,5 % de aciertos); con 12.000 por nivel resuelve paso a paso las preguntas fijas, mientras el control sin pasos responde `47 × 36` → 420. El modelo se especializó (saluda mal), y el GRPO quedó sin ejecutar.
 
 ---
 
@@ -188,3 +210,5 @@ Todo se entrena en local, sin GPUs alquiladas. Para orientarse: el coste de entr
 | Context window | Número máximo de tokens que el modelo ve a la vez |
 | SFT | Ajuste supervisado con ejemplos de la conducta deseada |
 | Tool call | Salida estructurada con la que el modelo pide al runtime ejecutar una función |
+| DPO | *Direct Preference Optimization*: ajuste con pares de respuestas preferida / rechazada, frente a un modelo de referencia congelado |
+| GRPO | *Group Relative Policy Optimization*: refuerzo que premia cada intento según lo que supera a la media de su grupo |

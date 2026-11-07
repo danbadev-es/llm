@@ -6,7 +6,7 @@ Entrenar el modelo base de Leon 0.1 con toda la Wikipedia en español: **56M de 
 
 El resultado (`checkpoints/4_pretrain/leon_0.1/best.pt`) es un modelo que escribe español con fluidez pero aún no conversa. La conversación llega en la fase 5.
 
-Después, una **extensión de contexto a 2048 tokens** (`control.py extend`, ~1,5 h): el mismo modelo, entrenado un poco más con ventanas el doble de largas. Ver [Extensión de contexto](#extensión-de-contexto-a-2048).
+Después, una **extensión de contexto a 2048 tokens** (`control.py extend`, ~1,2 h): el mismo modelo, entrenado un poco más con ventanas el doble de largas. Ver [Extensión de contexto](#extensión-de-contexto-a-2048).
 
 ## Archivos
 

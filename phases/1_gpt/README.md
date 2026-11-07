@@ -104,6 +104,6 @@ El coste por token de entrenamiento es `6·N` (matmuls de los pesos, forward + b
 | 50M × 2B | 6,0·10¹⁷ | ~17 h | ~11 h |
 | 60M × 3B | 1,1·10¹⁸ | ~30 h | ~20 h |
 
-- La columna de 15 TFLOP/s es optimista: supone que un modelo más ancho (d = 512–640) aprovecha mejor la GPU que este de d = 384. La fase 3 lo medirá.
+- La columna de 15 TFLOP/s es optimista: supone que un modelo más ancho (d = 512–640) aprovecha mejor la GPU que este de d = 384. La fase 3 lo midió (~42k tok/s con 56M).
 - Con contexto 1024 la atención deja de ser despreciable (+15–20 % sobre `6·N·D` en un modelo de 50M).
-- **Conclusión provisional**: 50M × 2B (~2–3 noches) es viable; 60M × 3B empieza a ser caro. El tamaño final se fijará en la fase 3 con la arquitectura definitiva.
+- **Conclusión provisional**: 50M × 2B (~2–3 noches) es viable; 60M × 3B empieza a ser caro. El tamaño final se fijó en la fase 3, con la arquitectura definitiva: 56M × 2B, ~12,5 h en la fase 4.

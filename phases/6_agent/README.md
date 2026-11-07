@@ -63,7 +63,7 @@ Los números se escriben como en español (`3,5`), y la calculadora acepta la co
 
 ```powershell
 python phases/6_agent/prepare.py              # una vez (CPU)
-python phases/6_agent/control.py start        # cuando la GPU esté libre (~15–20 min)
+python phases/6_agent/control.py start        # cuando la GPU esté libre (~8 min)
 python phases/6_agent/control.py status       # ¿cómo va?
 python phases/6_agent/evaluate.py             # al terminar
 ```

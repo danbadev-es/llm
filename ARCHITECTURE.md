@@ -6,7 +6,7 @@ Mapa técnico del repositorio: qué piezas hay, cómo fluyen los datos entre ell
 
 El repositorio tiene dos mitades con propósitos distintos:
 
-- **El curso** (`phases/`): una carpeta por fase, que se lee en orden. Cada fase contiene sus scripts, un README con resultados medidos y un notebook que reconstruye las piezas paso a paso.
+- **El curso** (`phases/`): una carpeta por fase, que se lee en orden. Cada fase contiene sus scripts y un README con resultados medidos; las fases 0–3, además, un notebook que reconstruye las piezas paso a paso.
 - **El producto** (`leon/` y `apps/`): el código definitivo de Leon 0.1, que se reutiliza, está testeado y es estable.
 
 Cuando una fase produce un componente que usarán fases posteriores o las apps, ese componente se **gradúa** a `leon/`. La fase conserva los scripts que lo entrenan, lo miden y lo explican. Las fases 0 y 1 son prototipos autocontenidos: no dependen de `leon/` y nada depende de ellas.
@@ -18,7 +18,11 @@ flowchart LR
         P1["1_gpt"]
         P2["2_tokenizer"]
         P3["3_modern"]
-        P4["4_pretrain … 8_reasoning"]
+        P4["4_pretrain"]
+        P5["5_sft"]
+        P6["6_agent"]
+        P7["7_dpo"]
+        P8["8_reasoning"]
     end
     subgraph product["Producto"]
         L["leon/<br/>paquete Python"]
@@ -27,9 +31,13 @@ flowchart LR
     end
     P2 -- "gradúa tokenizer" --> L
     P3 -- "gradúa modelo, datos, entrenamiento" --> L
-    P2 & P3 & P4 -- "importan" --> L
+    P4 -- "gradúa run (control en segundo plano)" --> L
+    P5 -- "gradúa sft, chat para entrenar" --> L
+    P6 -- "gradúa tools, agent" --> L
+    P7 -- "gradúa dpo" --> L
+    P8 -- "gradúa grpo" --> L
     API -- "importa" --> L
-    WEB -- "HTTP /api" --> API
+    WEB -- "HTTP /v1 y /api" --> API
 ```
 
 ## Flujo de datos
@@ -43,10 +51,21 @@ flowchart TD
     TK --> B
     B -->|"np.memmap + get_batch"| TR["phases/N/train.py"]
     TR -->|"atómico, con RNG"| C["checkpoints/N_fase/run/<br/>last.pt · best.pt"]
+    C -->|"--base / --init-from"| TR
     C -->|"engine.py"| API2["apps/api"]
     TK --> API2
     API2 -->|"Server-Sent Events"| UI["apps/web"]
 ```
+
+Desde la fase 5, cada fase parte del mejor modelo de la anterior y tiene sus propios datos, que prepara su `prepare.py`:
+
+| Fase | Parte de | Datos | Checkpoint (`stage`) |
+|---|---|---|---|
+| 4 | nada (desde cero); la extensión, de `4_pretrain/leon_0.1` | `data/wiki_es/*.bin` | `4_pretrain/leon_0.1`, `leon_0.1_ctx2048` (`base`) |
+| 5 | `4_pretrain/leon_0.1_ctx2048` | `data/sft/{train,val}.npz` (conversaciones empaquetadas) | `5_sft/leon_0.1_chat` (`chat`) |
+| 6 | `5_sft/leon_0.1_chat` | `data/agent/*.npz` (diálogos sintéticos), `data/docs/` | `6_agent/leon_0.1_agent` (`agent`) |
+| 7 | `6_agent/leon_0.1_agent` | `data/dpo/{train,val}.jsonl` (pares que genera el propio Leon en la GPU) | `7_dpo/leon_0.1_dpo` (`agent`) |
+| 8 | `7_dpo/leon_0.1_dpo` | `data/reasoning/{steps,direct}/*.npz` | `8_reasoning/leon_0.1_steps`, `leon_0.1_direct` (`agent`) |
 
 `data/` y `checkpoints/` no se versionan: todo se reconstruye con los scripts de las fases.
 
@@ -54,19 +73,19 @@ flowchart TD
 
 | Módulo | Responsabilidad | Depende de |
 |---|---|---|
-| `paths.py` | Rutas de `data/`, `checkpoints/` y del tokenizer | — |
+| `paths.py` | Rutas de `data/`, `checkpoints/` y de las versiones del tokenizer | — |
 | `tokenizer.py` | `BPETokenizer`: pre-tokenización por regex, entrenamiento BPE incremental, `encode`/`decode`, tokens especiales, `save`/`load` | — |
 | `model.py` | `Leon` y `LeonConfig`: RMSNorm, RoPE, atención con GQA, SwiGLU, `KVCache`, `stream`/`generate` | torch |
 | `data.py` | `TokenFile` (`.bin` con `np.memmap`, `get_batch`), `load_splits`, `load_tokenizer` | `paths`, `tokenizer` |
-| `training.py` | `lr_at`, `estimate_loss`, `bits_per_byte`, `save_checkpoint`/`load_checkpoint` | `model`, `data` |
-| `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake`. Lo común a los `control.py` de todas las fases: `launch` (proceso sin ventana), `wait_for_pause`, el panel en vivo (`dashboard`, `watch`), que muestra los campos que tenga el `status.json` de cada fase, y `Control`, la línea de comandos `start / pause / resume / status / watch` | — |
+| `training.py` | `lr_at`, `estimate_loss`, `loss_by_position` (loss por mitades del contexto), `bits_per_byte`, `save_checkpoint`/`load_checkpoint` | `model`, `data`, `paths` |
+| `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake`. Lo común a los `control.py` de todas las fases: `launch` (proceso sin ventana), `wait_for_pause`, el panel en vivo (`dashboard`, `watch`), que muestra los campos que tenga el `status.json` de cada fase, y `Control`, la línea de comandos `start / pause / resume / status / watch`. `status.json` se escribe de forma atómica y, si en Windows un lector lo tiene abierto, se reintenta y en último caso se salta esa actualización | `paths` |
+| `chat.py` | `encode_chat` y `encode_chat_for_training`: el chat template, con llamadas a herramientas desde la fase 6; `tool_call_json`, `DEFAULT_SYSTEM` | `tokenizer` |
 | `sft.py` | El bucle de ajuste supervisado de las fases 5, 6 y 8: `add_sft_args`, `micro_batch_plan` (conversaciones empaquetadas), `validation_loss`, `answer` (preguntas fijas) y `train_sft`, con estado, pausa y checkpoints | `chat`, `data`, `model`, `run`, `training` |
-| `export.py` | GGUF para llama.cpp, LM Studio y Ollama; `--verify` lo compara con los binarios de llama.cpp | `model`, `data`; extra opcional `gguf`, `jinja2` |
-| `chat.py` | `encode_chat` y `encode_chat_for_training`: el chat template, con llamadas a herramientas desde la fase 6; `DEFAULT_SYSTEM` | `tokenizer` |
 | `tools.py` | Las herramientas de Leon (fase 6): `calculadora` (evaluador aritmético sobre el AST, sin `eval`), `fecha_hora`, `buscar_documentos` (BM25 sobre `data/docs/`), y `system_prompt`, que las anuncia al modelo | `chat`, `paths` |
 | `dpo.py` | DPO (fase 7): `encode_answer`, `batch` (secuencias con máscara de respuesta), `sequence_logprobs` y `dpo_loss` con sus métricas | `chat` |
 | `grpo.py` | GRPO (fase 8): `reward` verificable, `group_advantages`, `token_logprobs` y `grpo_loss` con KL | `dpo` |
 | `agent.py` | `run_agent`: el bucle del agente (generar, parsear la llamada, ejecutar, añadir el resultado, continuar); `parse_call` | `tools` |
+| `export.py` | GGUF para llama.cpp, LM Studio y Ollama (`python -m leon.export`); `--verify` lo compara con los binarios de llama.cpp | `model`, `data`, `chat`, `tokenizer`; extra opcional `gguf`, `jinja2` |
 
 ### El modelo
 
@@ -125,7 +144,7 @@ Cada checkpoint guarda su versión, y los datos de SFT también, de modo que el 
 | `optimizer` | Solo en `last.pt`. `best.pt` no lo necesita y ocupa un tercio |
 | `rng_cpu`, `rng_cuda` | Estado de los generadores aleatorios, para que `--resume` continúe con los mismos batches |
 | `settings` | Los argumentos de la ejecución (lr, dataset, pasos...) |
-| `stage` | *(fase 5+)* `"chat"` en los modelos con SFT. Si falta, la API lo trata como `"base"` |
+| `stage` | `"base"` (fase 4), `"chat"` (fase 5) o `"agent"` (fase 6, sabe llamar a herramientas). Las fases 7 y 8 heredan el de su modelo de partida, así que sus modelos son `"agent"`. Si falta (fases 1–3), la API lo trata como `"base"` |
 
 Se escriben de forma atómica: primero un `.tmp` y luego `os.replace`.
 
@@ -145,7 +164,7 @@ Con herramientas (fase 6), la respuesta escribe la llamada en JSON y sigue en el
 - **Qué se aprende**: el texto de las respuestas, las llamadas (marcadores y JSON) y `<|end|>`; nunca el resultado, que escribe el *runtime*.
 - **JSON**: siempre `{"name": …, "arguments": …}` en ese orden, sin escapar los acentos (`leon.chat.tool_call_json`).
 
-Lo define `leon.chat`, y es la única implementación: las fases 5 y 6 lo usan para entrenar y `apps/api` para la inferencia.
+Lo define `leon.chat`, y es la única implementación: las fases 5–8 lo usan para entrenar, `leon.export` para el chat template del GGUF y `apps/api` para la inferencia.
 
 ### GGUF (`leon/export.py`)
 
@@ -162,7 +181,7 @@ Lo define `leon.chat`, y es la única implementación: las fases 5 y 6 lo usan p
 
 ### API HTTP
 
-Compatible con la API de Claude (`apps/api/anthropic_api.py`), para que el SDK oficial `anthropic` hable con Leon cambiando solo la URL base: `POST /v1/messages` (modo chat, con o sin streaming), `POST /v1/messages/count_tokens`, `POST /v1/complete` (modo completar, la antigua Text Completions) y `GET /v1/models`. Lo propio de Leon va en una clave `leon` (estadísticas de generación, metadatos del checkpoint) y en la cabecera `X-Leon-Conversation` (guardar en el historial). Además, el CRUD de `/api/conversations`. La web usa esta misma API (`apps/web/src/api.js` traduce entre ella y sus componentes). Ver [`apps/README.md`](apps/README.md).
+Compatible con la API de Claude (`apps/api/anthropic_api.py`), para que el SDK oficial `anthropic` hable con Leon cambiando solo la URL base: `POST /v1/messages` (modo chat, con o sin streaming), `POST /v1/messages/count_tokens`, `POST /v1/complete` (modo completar, la antigua Text Completions) y `GET /v1/models`. Acepta herramientas como la de Claude (`tools` → bloques `tool_use`; `tool_result` en el siguiente mensaje), y las de Leon se ejecutan en el servidor con `"leon": {"tools": true}`. Lo propio de Leon va en una clave `leon` (estadísticas de generación, metadatos del checkpoint) y en la cabecera `X-Leon-Conversation` (guardar en el historial). Además, el CRUD de `/api/conversations` y `POST /api/context` (el indicador de contexto de la web). La web usa esta misma API (`apps/web/src/api.js` traduce entre ella y sus componentes). Ver [`apps/README.md`](apps/README.md).
 
 ### Historial de conversaciones
 
@@ -193,18 +212,24 @@ SQLite en `data/chat.db` (`apps/api/store.py`):
 
 ## Reglas de dependencias
 
-1. **`leon/` no importa nada** de `phases/`, `apps/` ni `tests/`: solo la biblioteca estándar, numpy, torch, regex (clases Unicode del pre-tokenizer) y sus propios módulos.
+1. **`leon/` no importa nada** de `phases/`, `apps/` ni `tests/`: solo la biblioteca estándar, numpy, torch, regex (clases Unicode del pre-tokenizer) y sus propios módulos. La única excepción son los extras opcionales de `export.py` (`gguf`, `jinja2`), que no importa ningún otro módulo.
 2. **Las fases 2 en adelante** importan de `leon/` y nunca entre ellas. Si dos fases necesitan lo mismo, ese código se gradúa a `leon/`.
 3. **Las fases 0 y 1** no importan de `leon/`: son prototipos autocontenidos y se pueden leer sin conocer el resto.
 4. **`apps/api`** importa de `leon/`. **`apps/web`** solo habla con la API por HTTP.
 5. **Ningún script modifica `sys.path`** para encontrar `leon`, que se instala con `pip install -e .`. Las únicas excepciones son los notebooks y `tests/test_api.py`, que cargan código que no es un paquete (`phases/1_gpt`, `apps/api`).
 
-`tests/test_architecture.py` comprueba automáticamente las reglas 1 y 3.
+`tests/test_architecture.py` comprueba automáticamente las reglas 1, 2 y 3.
 
-## Puntos de extensión (fases 4–6)
+## Cómo encaja cada fase (4–8)
 
-| Fase | Dónde | Qué reutiliza |
-|---|---|---|
-| 4: preentrenamiento | **Implementada**: `phases/4_pretrain/control.py` (prepare, start, pause, resume, status, watch, extend) lanza `train.py` como proceso independiente. Pausar y continuar da exactamente los mismos pesos que entrenar sin parar | `leon.data`, `leon.model`, `leon.training`, `leon.run` |
-| 5: SFT conversacional | `phases/5_sft/`: dataset de diálogos codificado con `encode_chat` y targets a `-100` en los turnos no del asistente (`ignore_index` de la loss). Checkpoints con `stage="chat"` | `leon.chat`, `leon.training`; la loss de `Leon.forward` ya ignora los targets `-100` |
-| 6: tool calling | **Implementada**: template en `leon/chat.py`, herramientas en `leon/tools.py`, bucle en `leon/agent.py`; `apps/api/engine.py` lo ejecuta con `"leon": {"tools": true}` y la API acepta `tools`/`tool_use`/`tool_result` como la de Claude. Datos, entrenamiento y evaluación en `phases/6_agent/` | `leon.sft`, `leon.run.Control` |
+Todas siguen el mismo patrón: un `prepare.py` que deja los datos en `data/<fase>/`, un `train.py` que escribe `status.json` y checkpoints con `leon.run.RunFiles` y `leon.training.save_checkpoint`, y un `control.py` con `start / pause / resume / status / watch` y el panel común (`leon.run`). Pausar y continuar da los mismos pesos que entrenar sin parar.
+
+| Fase | Dónde | Qué añade al producto | Qué reutiliza |
+|---|---|---|---|
+| 4: preentrenamiento | `phases/4_pretrain/`: `control.py` (`prepare`, `start`, `pause`, `resume`, `status`, `watch`, `extend`) lanza `train.py` como proceso independiente; `extend` continúa a contexto 2048 con `--init-from` y `--rope-theta` | `leon/run.py`, `TokenFile.long_windows`, `leon.training.loss_by_position` | `leon.data`, `leon.model`, `leon.training` |
+| 5: SFT conversacional | `phases/5_sft/`: `prepare.py` (diálogos de oasst2, Aya, Dolly, Alpaca y WildChat, codificados con `encode_chat_for_training`, targets a `-100` fuera de las respuestas) y `train.py` sobre `leon.sft.train_sft`. Checkpoints con `stage="chat"` | `leon/sft.py`, `leon.data.ConversationFile`, `leon.run.Control` | `leon.chat`, `leon.training`; la loss de `Leon.forward` ya ignora los targets `-100` |
+| 6: herramientas | `phases/6_agent/`: `prepare.py` (diálogos sintéticos con los resultados de las herramientas reales y los documentos de `data/docs/ejemplo/`), `train.py` (`train_sft(..., stage="agent")`), `evaluate.py`. `apps/api/engine.py` ejecuta el bucle con `"leon": {"tools": true}` | llamadas en `leon/chat.py`, `leon/tools.py`, `leon/agent.py`; `tools`/`tool_use`/`tool_result` en `apps/api` | `leon.sft`, `leon.run.Control` |
+| 7: DPO | `phases/7_dpo/`: `control.py prepare` genera en la GPU los pares (respuesta humana frente a una muestra de Leon), `train.py` entrena con una referencia congelada precalculada (`reference.pt`) y `evaluate.py` mide bucles, respuestas terminadas y longitud. Hereda el `stage` del modelo de partida | `leon/dpo.py` | `leon.chat`, `leon.training`, `leon.run.Control` |
+| 8: razonamiento | `phases/8_reasoning/`: `prepare.py` (aritmética en 5 niveles, con pasos y en versión directa), `train.py` sobre `leon.sft` (`leon_0.1_steps` y el control `leon_0.1_direct`), `grpo.py` (`control.py grpo`) y `evaluate.py`. GRPO y `evaluate.py` no se llegaron a ejecutar con el modelo final: quedan como ejercicio | `leon/grpo.py` | `leon.sft`, `leon.dpo`, `leon.run.Control` |
+
+La web no necesita cambios para un modelo nuevo: `apps/api` lista cualquier `checkpoints/N_*/<run>/best.pt` con N ≥ 3, y la web decide el modo y el interruptor de herramientas por su `stage`.

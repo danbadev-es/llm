@@ -33,7 +33,7 @@ Y compararlas con un **control**: los mismos problemas respondidos directamente,
   Respuesta: 1692
   ```
 
-- **El control**: los mismos 19.000 problemas, respondidos solo con `Respuesta: N`. La diferencia de aciertos entre los dos modelos es lo que valen los pasos.
+- **El control**: los mismos problemas (19.000 con `--per-level 4000`, 57.000 con 12.000), respondidos solo con `Respuesta: N`. La diferencia de aciertos entre los dos modelos es lo que valen los pasos.
 - **Recompensa verificable**: un programa comprueba la respuesta (`Respuesta: N` correcta = 1; formato correcto con número erróneo = 0,1; nada = 0). No hace falta un modelo que juzgue, ni pares de preferencias.
 - **GRPO** (`leon/grpo.py`): 8 intentos por problema; la ventaja de cada uno es su recompensa menos la media de su grupo, dividida por la desviación. Los tokens de los intentos mejores que la media suben de probabilidad y los peores bajan, con una penalización KL hacia el modelo de partida.
 - **Grupos que enseñan**: si los 8 intentos aciertan, o fallan todos, la ventaja es 0 y no se aprende nada. Por eso GRPO usa los niveles 2–5 y parte del modelo con pasos, que ya acierta a veces. El panel muestra qué fracción de grupos enseña algo.
@@ -51,8 +51,8 @@ Y compararlas con un **control**: los mismos problemas respondidos directamente,
 | 4 | `(19 + 66) × 3`, `47 × 6 − 38` | 5–6 líneas |
 | 5 | "Tengo 5 estanterías con 51 libros cada una y regalo 48 libros. ¿Cuántos libros me quedan?" | 5–6 líneas |
 
-- 4.000 problemas por nivel (95 % train), más 3.000 conversaciones de la fase 5 para que no olvide conversar.
-- 5.000 problemas (niveles 2–5) con su respuesta para GRPO.
+- `--per-level` problemas por nivel (95 % train), más 3.000 conversaciones de la fase 5 para que no olvide conversar (`--chat`). El valor por defecto es 4.000, pero **no basta** (ver Resultados): los resultados usaron **12.000** (59.851 conversaciones de train, 5,0M tokens), y es lo recomendado.
+- 5.000 problemas (niveles 2–5) con su respuesta para GRPO (`--grpo`).
 - 100 por nivel para la evaluación, que nunca aparecen en el entrenamiento.
 
 ## Ejecución
@@ -60,14 +60,17 @@ Y compararlas con un **control**: los mismos problemas respondidos directamente,
 Todo usa la GPU salvo `prepare.py`.
 
 ```powershell
-python phases/8_reasoning/prepare.py
-python phases/8_reasoning/control.py start                          # con pasos (~10 min)
-python phases/8_reasoning/control.py start --run leon_0.1_direct    # control (~5 min)
-python phases/8_reasoning/control.py grpo                           # refuerzo (300 pasos)
-python phases/8_reasoning/evaluate.py                               # la tabla de aciertos
+python phases/8_reasoning/prepare.py --per-level 12000
+python phases/8_reasoning/control.py start -- --epochs 4                          # con pasos (~12 min)
+python phases/8_reasoning/control.py start --run leon_0.1_direct -- --epochs 4    # control
+python phases/8_reasoning/control.py grpo                                         # refuerzo (300 pasos)
+python phases/8_reasoning/evaluate.py                                             # la tabla de aciertos
 ```
 
-Parten del modelo de conversación más reciente (fase 7, 6 o 5). `pause`, `status` y `watch` aceptan `--run leon_0.1_direct` o `--run leon_0.1_grpo`; `grpo` continúa solo si estaba en pausa.
+- `start` entrena `leon_0.1_steps` por defecto (2 épocas si no se pasa `--epochs`). Los datos siguen al nombre del run: `leon_0.1_direct` usa los de sin pasos.
+- Los ajustes parten del modelo de conversación más reciente (fase 7, 6 o 5); `grpo`, de `leon_0.1_steps/best.pt`, y se niega a arrancar si no existe.
+- `grpo` es un subcomando aparte, no `resume`: si `leon_0.1_grpo` está en pausa, continúa (con `--fresh`, empieza de cero). Las opciones de `grpo.py` van después de `--`: `--steps` (300), `--problems` (8 por paso), `--group` (8 intentos), `--lr` (1e-6), `--beta` (0,04, la KL).
+- `pause`, `status` y `watch` aceptan `--run leon_0.1_direct` o `--run leon_0.1_grpo`; `resume`, solo los dos ajustes supervisados.
 
 ## Qué observar
 
@@ -119,4 +122,4 @@ Respuesta: 151
 | Con pasos | | | | | |
 | Con pasos + GRPO | | | | | |
 
-*(Pendiente: `python phases/8_reasoning/evaluate.py` y `control.py grpo`.)*
+*(Sin rellenar: el proyecto se paró antes de `control.py grpo` y `evaluate.py`. Queda como ejercicio.)*
