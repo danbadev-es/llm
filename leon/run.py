@@ -272,7 +272,10 @@ def dashboard(run: RunFiles, title: str, control: str, status: dict) -> str:
                 lines.append(f"   » {question}")
                 lines += _wrap(reply, width, "     ", 2)
     if run.log.exists():
-        log = [line for line in run.log.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+        # Only the unindented lines (evaluations, start, pause, end): the indented ones are the
+        # samples, probe answers and long-text losses, already shown above.
+        text = run.log.read_text(encoding="utf-8", errors="replace").splitlines()
+        log = [line for line in text if line.strip() and not line[0].isspace()]
         lines += ["", " Log:"] + [f"   {line[: width - 4]}" for line in log[-5:]]
     lines += [rule, " Closing this window does NOT stop the training.", f" Pause: {control} pause"]
     return "\n".join(lines)
