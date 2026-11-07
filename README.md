@@ -40,6 +40,7 @@ En el chat, el mejor modelo es **`7_dpo/leon_0.1_dpo`** (SFT + herramientas + DP
 |---|---|
 | [`docs/fundamentos.md`](docs/fundamentos.md) | Conceptos desde cero, objetivo y criterios de éxito de Leon 0.1 |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Componentes, flujo de datos, formatos compartidos, decisiones de diseño y reglas de dependencias |
+| [`MODEL_CARD.md`](MODEL_CARD.md) | La ficha del modelo final: arquitectura, entrenamiento, evaluación, limitaciones, datos y licencias |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Entorno, flujo de trabajo, convenciones y cómo añadir una fase |
 | [`CHANGELOG.md`](CHANGELOG.md) | Hitos y resultados, fase a fase |
 | [`CLAUDE.md`](CLAUDE.md) | Instrucciones para sesiones de Claude Code: qué comando corresponde a "arranca", "pausa", "continúa"... |
