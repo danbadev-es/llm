@@ -18,7 +18,7 @@ flowchart LR
         P1["1_gpt"]
         P2["2_tokenizer"]
         P3["3_modern"]
-        P4["4_pretrain … 8_reasoning<br/>(por venir)"]
+        P4["4_pretrain … 8_reasoning"]
     end
     subgraph product["Producto"]
         L["leon/<br/>paquete Python"]
@@ -65,6 +65,7 @@ flowchart TD
 | `chat.py` | `encode_chat` y `encode_chat_for_training`: el chat template, con llamadas a herramientas desde la fase 6; `DEFAULT_SYSTEM` | `tokenizer` |
 | `tools.py` | Las herramientas de Leon (fase 6): `calculadora` (evaluador aritmético sobre el AST, sin `eval`), `fecha_hora`, `buscar_documentos` (BM25 sobre `data/docs/`), y `system_prompt`, que las anuncia al modelo | `chat`, `paths` |
 | `dpo.py` | DPO (fase 7): `encode_answer`, `batch` (secuencias con máscara de respuesta), `sequence_logprobs` y `dpo_loss` con sus métricas | `chat` |
+| `grpo.py` | GRPO (fase 8): `reward` verificable, `group_advantages`, `token_logprobs` y `grpo_loss` con KL | `dpo` |
 | `agent.py` | `run_agent`: el bucle del agente (generar, parsear la llamada, ejecutar, añadir el resultado, continuar); `parse_call` | `tools` |
 
 ### El modelo

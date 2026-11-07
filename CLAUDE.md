@@ -4,7 +4,7 @@ Read README.md and ARCHITECTURE.md first. Answer the user in Spanish; code, comm
 
 ## Training runs: what the user's words mean
 
-Every long training run has a `control.py` in its phase folder (run from the repo root with `.venv\Scripts\python.exe`). The words act on **the phase in progress**: the lowest phase whose run has not finished (phase 5, then 6: `phases/6_agent/control.py`, which needs `phases/6_agent/prepare.py` first, CPU only, and the phase 5 model); an earlier phase if the user names it. After phase 6 trains, run `phases/6_agent/evaluate.py` and report its table. Phase 7 (`phases/7_dpo/control.py`) has two GPU steps: `prepare` (sampling the pairs, ~30 min; its status is `status --run prepare`) and then `start`; "prepara los datos" in phase 7 means `prepare`, and it needs the user's go-ahead like any GPU run.
+Every long training run has a `control.py` in its phase folder (run from the repo root with `.venv\Scripts\python.exe`). The words act on **the phase in progress**: the lowest phase whose run has not finished (phase 5, then 6: `phases/6_agent/control.py`, which needs `phases/6_agent/prepare.py` first, CPU only, and the phase 5 model); an earlier phase if the user names it. After phase 6 trains, run `phases/6_agent/evaluate.py` and report its table. Phase 7 (`phases/7_dpo/control.py`) has two GPU steps: `prepare` (sampling the pairs, ~30 min; its status is `status --run prepare`) and then `start`; "prepara los datos" in phase 7 means `prepare`, and it needs the user's go-ahead like any GPU run. Phase 8 (`phases/8_reasoning/control.py`): `prepare.py` first (CPU), then `start` (steps), `start --run leon_0.1_direct` (control) and `grpo`; report `evaluate.py`'s table at the end.
 
 | The user says | Run | Then |
 |---|---|---|

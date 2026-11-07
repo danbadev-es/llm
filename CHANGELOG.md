@@ -5,6 +5,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 ## Sin publicar
 
 ### Resultados
+- **Fase 5: SFT terminado** (2026-11-07): 4.863 pasos, 3 épocas de 86.088 conversaciones a contexto 2048, desde la extensión de la fase 4. Loss de las respuestas 2,846 → **2,070** (perplejidad 7,9) en 1 h 53 min. `checkpoints/5_sft/leon_0.1_chat/best.pt` saluda, responde preguntas sencillas ("La capital de Francia es París.") y sigue inventando datos.
 - **Fase 4: preentrenamiento de Leon 0.1 y extensión a 2048 terminados** (2026-11-07):
   - 56M de parámetros, contexto 1024, 2,0B de tokens de la Wikipedia en español (15.259 pasos);
   - **val loss 2,4218 = 0,897 bits/byte** en Wikipedia y 1,687 en el Quijote (fase 3, 32M: 1,175);
@@ -13,6 +14,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
   - **Extensión a 2048** (`leon_0.1_ctx2048`, 151M de tokens, 1 h 12 min): la loss en las posiciones 1024–2047 de artículos largos queda 0,17 por debajo de la de 0–1023 (−0,07 antes); Quijote 1,657 bits/byte.
 
 ### Añadido
+- **Fase 8, razonamiento** (lista para ejecutar): `phases/8_reasoning/prepare.py` genera aritmética de 5 niveles con soluciones paso a paso (productos de una cifra, sumas de números redondos) y la versión directa como control; `train.py` (con `leon.sft`), `grpo.py` y `leon/grpo.py` (recompensa verificable, ventaja por grupo, KL hacia la referencia), `evaluate.py` (aciertos por nivel).
 - **Fase 7, DPO** (lista para ejecutar cuando la GPU esté libre): `leon/dpo.py` (pérdida DPO, log-probabilidades de una respuesta); `phases/7_dpo/prepare.py` genera los pares con el propio Leon (respuesta humana frente a la suya, 4 muestras por pregunta en un batch, reanudable); `train.py` con referencia congelada precalculada; `evaluate.py` (repeticiones, respuestas terminadas, longitud). El panel común muestra `Metrics` (precisión de la recompensa, margen).
 - **Fase 6, herramientas** (lista para entrenar cuando la GPU esté libre):
   - template con llamadas (`<|tool_call|>…<|/tool_call|><|tool_result|>…<|/tool_result|>`, `leon/chat.py`), tres herramientas (`leon/tools.py`: calculadora sin `eval`, fecha en español, búsqueda BM25 en `data/docs/`) y el bucle del agente (`leon/agent.py`);
