@@ -81,3 +81,43 @@ def test_the_web_app_uses_the_same_default_system_prompt() -> None:
 
     preferences = Path(__file__).resolve().parents[1] / "apps" / "web" / "src" / "preferences.js"
     assert f'DEFAULT_SYSTEM = "{DEFAULT_SYSTEM}"' in preferences.read_text(encoding="utf-8")
+
+
+TOOL_CONVERSATION = [
+    {"role": "user", "content": "hola"},
+    {"role": "assistant", "content": "", "tool_calls": [{"name": "calculadora", "arguments": {"expresion": "2+2"}}]},
+    {"role": "tool", "content": "4"},
+    {"role": "assistant", "content": "bien"},
+]
+
+
+def test_tool_calls_continue_the_same_assistant_turn() -> None:
+    expected = (
+        '<|user|>hola<|end|><|assistant|><|tool_call|>{"name": "calculadora", "arguments": {"expresion": "2+2"}}'
+        "<|/tool_call|><|tool_result|>4<|/tool_result|>bien<|end|>"
+    )
+    assert TOKENIZER.decode(encode_chat(TOKENIZER, TOOL_CONVERSATION, add_generation_prompt=False)) == expected
+    # After a tool result the model continues the turn: no new <|assistant|> is added.
+    prompt = encode_chat(TOKENIZER, TOOL_CONVERSATION[:3])
+    assert TOKENIZER.decode(prompt).endswith("<|tool_result|>4<|/tool_result|>")
+
+
+def test_training_learns_the_call_and_the_answer_but_not_the_result() -> None:
+    ids, learn = encode_chat_for_training(TOKENIZER, TOOL_CONVERSATION)
+    assert ids == encode_chat(TOKENIZER, TOOL_CONVERSATION, add_generation_prompt=False)
+    learned = TOKENIZER.decode([t for t, keep in zip(ids, learn) if keep])
+    assert learned == '<|tool_call|>{"name": "calculadora", "arguments": {"expresion": "2+2"}}<|/tool_call|>bien<|end|>'
+    result = ids.index(S["<|tool_result|>"])
+    assert not any(learn[result : ids.index(S["<|/tool_result|>"]) + 1])
+
+
+def test_tool_messages_must_follow_a_tool_call() -> None:
+    for bad in (
+        [{"role": "user", "content": "hola"}, {"role": "tool", "content": "4"}],
+        [{"role": "assistant", "content": "a", "tool_calls": [{"name": "x"}]}, {"role": "user", "content": "b"}],
+    ):
+        try:
+            encode_chat(TOKENIZER, bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad}")

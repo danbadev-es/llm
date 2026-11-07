@@ -62,7 +62,9 @@ flowchart TD
 | `run.py` | `RunFiles`: ficheros de control de un entrenamiento en segundo plano (`PAUSE`, `status.json`, `train.pid`, `train.log`), `is_process_alive`, `keep_system_awake`. Lo común a los `control.py` de todas las fases: `launch` (proceso sin ventana), `wait_for_pause`, el panel en vivo (`dashboard`, `watch`), que muestra los campos que tenga el `status.json` de cada fase, y `Control`, la línea de comandos `start / pause / resume / status / watch` | — |
 | `sft.py` | El bucle de ajuste supervisado de las fases 5, 6 y 8: `add_sft_args`, `micro_batch_plan` (conversaciones empaquetadas), `validation_loss`, `answer` (preguntas fijas) y `train_sft`, con estado, pausa y checkpoints | `chat`, `data`, `model`, `run`, `training` |
 | `export.py` | GGUF para llama.cpp, LM Studio y Ollama; `--verify` lo compara con los binarios de llama.cpp | `model`, `data`; extra opcional `gguf`, `jinja2` |
-| `chat.py` | `encode_chat`: el chat template | `tokenizer` |
+| `chat.py` | `encode_chat` y `encode_chat_for_training`: el chat template, con llamadas a herramientas desde la fase 6; `DEFAULT_SYSTEM` | `tokenizer` |
+| `tools.py` | Las herramientas de Leon (fase 6): `calculadora` (evaluador aritmético sobre el AST, sin `eval`), `fecha_hora`, `buscar_documentos` (BM25 sobre `data/docs/`), y `system_prompt`, que las anuncia al modelo | `chat`, `paths` |
+| `agent.py` | `run_agent`: el bucle del agente (generar, parsear la llamada, ejecutar, añadir el resultado, continuar); `parse_call` | `tools` |
 
 ### El modelo
 
@@ -131,7 +133,17 @@ Se escriben de forma atómica: primero un `.tmp` y luego `os.replace`.
 <|system|>…<|end|><|user|>…<|end|><|assistant|>…<|end|><|user|>…<|end|><|assistant|>
 ```
 
-Lo define `leon.chat.encode_chat`, y es la única implementación: la fase 5 lo usará para entrenar y `apps/api` para la inferencia.
+Con herramientas (fase 6), la respuesta escribe la llamada en JSON y sigue en el mismo turno tras el resultado, que inserta el *runtime*:
+
+```
+<|assistant|><|tool_call|>{"name": "calculadora", "arguments": {"expresion": "17*24"}}<|/tool_call|><|tool_result|>408<|/tool_result|>Son 408.<|end|>
+```
+
+- **Como mensajes**: un mensaje `assistant` con `tool_calls: [{"name", "arguments"}]`, un `{"role": "tool", "content"}` por llamada y otro `assistant` con el resto de la respuesta.
+- **Qué se aprende**: el texto de las respuestas, las llamadas (marcadores y JSON) y `<|end|>`; nunca el resultado, que escribe el *runtime*.
+- **JSON**: siempre `{"name": …, "arguments": …}` en ese orden, sin escapar los acentos (`leon.chat.tool_call_json`).
+
+Lo define `leon.chat`, y es la única implementación: las fases 5 y 6 lo usan para entrenar y `apps/api` para la inferencia.
 
 ### GGUF (`leon/export.py`)
 
