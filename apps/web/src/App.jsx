@@ -1,4 +1,4 @@
-import { CircleAlertIcon, TriangleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, MessagesSquareIcon, TriangleAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast as sonner } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,9 @@ export default function App() {
   const [modelsState, setModelsState] = useState("loading"); // "loading" | "ready" | "error"
   const [conversations, setConversations] = useState(null); // null until the first list arrives
   const [currentId, setCurrentId] = useState(null);
-  const [mode, setMode] = useState(loadMode);
+  // With no saved mode, the first visit opens in the mode that suits its model (see loadModels).
+  const savedModeRef = useRef(loadMode());
+  const [mode, setMode] = useState(savedModeRef.current ?? "chat");
   const [messages, setMessages] = useState([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [settings, setSettings] = useState(loadSettings);
@@ -76,11 +78,14 @@ export default function App() {
       .then((data) => {
         setModels(data.models);
         setModelsState("ready");
-        // The model used last time, if it still exists; otherwise the first one.
-        setModelName((current) => {
-          const wanted = current || loadModelName();
-          return (data.models.find((m) => m.name === wanted) ?? data.models[0])?.name ?? "";
-        });
+        // The model used last time, if it still exists; otherwise the newest conversational one
+        // (phase 5+), otherwise the first one.
+        const wanted = modelNameRef.current || loadModelName();
+        const chosen =
+          data.models.find((m) => m.name === wanted) ?? data.models.find((m) => m.stage !== "base") ?? data.models[0];
+        setModelName(chosen?.name ?? "");
+        // First visit: chat for a conversational model, completion for a base one.
+        if (!savedModeRef.current && chosen) setMode(chosen.stage !== "base" ? "chat" : "complete");
       })
       .catch(() => setModelsState("error"));
   }, []);
@@ -98,6 +103,8 @@ export default function App() {
   }, [modelName]);
 
   const model = models.find((m) => m.name === modelName);
+  const modelNameRef = useRef(modelName);
+  modelNameRef.current = modelName;
   const canSend = Boolean(model) && !loadingConversation;
   const contextUsage = useContextUsage({
     model,
@@ -358,6 +365,16 @@ export default function App() {
         <p className="flex-1 self-center">No se pudo contactar con la API. ¿Está corriendo apps/api/app.py?</p>
         <Button variant="outline" size="sm" className={noticeButton} onClick={loadModels}>
           Reintentar
+        </Button>
+      </div>
+    ) : mode === "complete" && model && model.stage !== "base" && messages.length === 0 && !loadingConversation ? (
+      <div className={`${noticeClass} border-border bg-accent text-foreground`}>
+        <MessagesSquareIcon className="mt-px size-[18px] shrink-0" />
+        <p className="flex-1 self-center">
+          <b>{model.name}</b> es un modelo de conversación: responde mejor en modo Chat.
+        </p>
+        <Button variant="outline" size="sm" className={noticeButton} onClick={() => changeMode("chat")}>
+          Usar Chat
         </Button>
       </div>
     ) : mode === "chat" && model?.stage === "base" && !loadingConversation ? (

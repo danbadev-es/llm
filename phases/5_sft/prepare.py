@@ -31,7 +31,7 @@ import numpy as np
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from leon.chat import encode_chat_for_training
+from leon.chat import DEFAULT_SYSTEM, encode_chat_for_training
 from leon.data import load_tokenizer
 from leon.paths import DATA_DIR, DEFAULT_TOKENIZER
 
@@ -44,7 +44,7 @@ SOURCES = {
     "alpaca": [("bertin-project/alpaca-spanish", "default", "train")],
     "wildchat": [("allenai/WildChat-1M", "default", "train")],
 }
-SYSTEM_PROMPT = "Eres Leon, un asistente que responde en español de forma clara y breve."
+SYSTEM_PROMPT = DEFAULT_SYSTEM
 # The assistant in oasst2 introduces itself by its original name; Leon should not.
 IDENTITY = re.compile(r"\b(Open[ -]?Assistant|LAION)\b", re.IGNORECASE)
 # WildChat answers that would teach Leon to be someone else, or to answer with code: skipped.

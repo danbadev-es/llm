@@ -9,6 +9,9 @@ both import it from here so they can never drift apart.
 from leon.tokenizer import BPETokenizer
 
 ROLES = ("system", "user", "assistant")
+# The system prompt of the SFT data (phase 5 gives it to a share of the conversations) and the
+# chat app's default. apps/web/src/preferences.js repeats it (tests/test_chat.py checks they match).
+DEFAULT_SYSTEM = "Eres Leon, un asistente que responde en español de forma clara y breve."
 
 
 def encode_chat(

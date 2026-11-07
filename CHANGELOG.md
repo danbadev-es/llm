@@ -13,6 +13,7 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
   - **Extensión a 2048** (`leon_0.1_ctx2048`, 151M de tokens, 1 h 12 min): la loss en las posiciones 1024–2047 de artículos largos queda 0,17 por debajo de la de 0–1023 (−0,07 antes); Quijote 1,657 bits/byte.
 
 ### Añadido
+- **Modo chat listo para los modelos de la fase 5**: la primera visita abre el modelo de conversación más reciente en modo Chat, la fase más reciente encabeza el selector, un modelo de chat en Completar sugiere Chat y las instrucciones del sistema por defecto son las del SFT (`leon.chat.DEFAULT_SYSTEM`).
 - **Fase 5 con control y panel**: `phases/5_sft/control.py` con `start`, `pause`, `resume`, `status` y `watch`. `train.py` escribe `status.json` (progreso, loss de train y val, tok/s, hora de fin, respuestas a las preguntas fijas) y se pausa limpiamente.
   - El panel es uno solo para todas las fases (`leon.run.dashboard`): muestra los campos que tenga el `status.json` de cada una. La fase 4 lo usa también.
   - Un SFT lanzado antes de este cambio se ve igual: el panel lee el progreso de las evaluaciones del `train.log`.

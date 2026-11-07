@@ -72,3 +72,12 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print(f"ok  {name}")
+
+
+def test_the_web_app_uses_the_same_default_system_prompt() -> None:
+    from pathlib import Path
+
+    from leon.chat import DEFAULT_SYSTEM
+
+    preferences = Path(__file__).resolve().parents[1] / "apps" / "web" / "src" / "preferences.js"
+    assert f'DEFAULT_SYSTEM = "{DEFAULT_SYSTEM}"' in preferences.read_text(encoding="utf-8")

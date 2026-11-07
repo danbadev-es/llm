@@ -18,7 +18,8 @@ function groupModels(models) {
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push({ ...model, label: model.name.slice(slash + 1) + (model.stage === "base" ? " (base)" : "") });
   }
-  return [...groups];
+  // Newest phase first ("5_sft" before "4_pretrain"): the conversational models lead the list.
+  return [...groups].sort(([a], [b]) => b.localeCompare(a, "en", { numeric: true }));
 }
 
 const modelDetails = (model) =>

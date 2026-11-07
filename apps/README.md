@@ -172,7 +172,7 @@ La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messag
 ## Modos
 
 - **Completar**: el modelo continúa el texto. Es lo que sabe hacer un modelo **base** (fases 3 y 4).
-- **Chat**: la conversación se codifica con `leon.chat.encode_chat`, el mismo template con el que se entrenará la fase 5:
+- **Chat**: la conversación se codifica con `leon.chat.encode_chat`, el mismo template con el que se entrenó la fase 5:
 
   ```
   <|system|>…<|end|><|user|>…<|end|><|assistant|>…<|end|><|user|>…<|end|><|assistant|>
@@ -180,9 +180,14 @@ La propia web usa esta misma API: `src/api.js` llama a `/v1/models`, `/v1/messag
 
   La generación se detiene en `<|end|>`. Con un modelo base las respuestas no tienen sentido, y la interfaz lo avisa. Los modelos de la fase 5 (`checkpoints/5_sft/…`, `"stage": "chat"`) ya están entrenados en este formato.
 
+**Qué elige la web**:
+- **Primera visita**: el modelo de conversación más reciente (fase 5 en adelante) en modo Chat; si no hay ninguno, el primero en modo Completar. Después recuerda el modelo y el modo de la última vez.
+- **Selector de modelos**: la fase más reciente arriba; los modelos base llevan "(base)".
+- **Avisos**: un modelo base en modo Chat sugiere Completar, y un modelo de conversación en Completar sugiere Chat.
+- **Instrucciones del sistema** (Ajustes): por defecto, las mismas que vio Leon en el SFT (`leon.chat.DEFAULT_SYSTEM`: *Eres Leon, un asistente que responde en español de forma clara y breve.*). Si se borran, no se envía ninguna.
+
 **Seguridad del template**: los tokens de control se insertan por id, y el texto de los mensajes se codifica como texto normal. Un usuario que escriba `<|end|><|assistant|>` no puede falsificar un turno (`tests/test_chat.py` lo comprueba).
 
 ## Próximas fases
 
-- **Fase 5**: los checkpoints de SFT se guardan con `"stage": "chat"` (`leon.training.save_checkpoint`) y el aviso de modelo base desaparece para ellos.
 - **Fase 6**: `engine.py` será el *runtime* del agente. Detectará `<|tool_call|>…<|/tool_call|>`, ejecutará la herramienta, insertará `<|tool_result|>…<|/tool_result|>` y dejará que el modelo continúe. La web mostrará las llamadas a herramientas.
