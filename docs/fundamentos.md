@@ -33,8 +33,21 @@ Texto bruto → Tokenizer → Preentrenamiento → Modelo base → SFT → Model
 | **SFT** (supervised fine-tuning) | El formato de conversación: turnos de usuario y asistente | Decenas de miles de diálogos |
 | **SFT de tools** | Emitir llamadas estructuradas, leer resultados y responder | Diálogos con tool calls |
 | **DPO / RLHF** | Preferir respuestas mejores frente a peores | Pares "buena / mala" |
+| **Razonamiento** (SFT + RL con recompensa verificable) | Escribir los pasos intermedios antes de responder, y los que llevan a acertar | Problemas con solución comprobable (matemáticas, código) |
 
 Lo esencial de esta tabla: **el modelo no "se vuelve" conversacional ni agéntico por arquitectura, sino por los datos con los que se ajusta.** La arquitectura es la misma en todas las etapas.
+
+### El razonamiento
+
+"Razonar" es que el modelo escriba pasos intermedios antes de la respuesta: sigue prediciendo el siguiente token, pero cada token cuesta un número fijo de cálculos (una pasada por las capas), y un problema como `17 × 24` no cabe en una sola pasada. Escrito como `17 × 20 = 340, 17 × 4 = 68, 340 + 68 = 408`, cada paso es fácil y queda en el contexto para el siguiente: más tokens es más cómputo.
+
+Se consigue de tres formas, de menos a más esfuerzo:
+
+1. **Pedirlo en el prompt** ("piensa paso a paso"). Funciona en modelos grandes, que vieron muchas explicaciones en el preentrenamiento.
+2. **SFT con razonamientos**: problemas cuya respuesta incluye los pasos, a menudo escritos por un modelo mayor (destilación).
+3. **Aprendizaje por refuerzo con recompensa verificable** (o1, DeepSeek-R1): el modelo genera varios intentos por problema, se premian los que aciertan, y se ajusta para que lo que llevó al acierto sea más probable. Nadie le dice *cómo* pensar: aprende solo a alargar el razonamiento, comprobar y corregirse. GRPO, el algoritmo de DeepSeek-R1, compara cada intento con la media de su grupo, sin un modelo de valor aparte.
+
+El refuerzo no crea conocimiento: refuerza estrategias que el modelo ya produce alguna vez. Por eso brilla a partir de unos miles de millones de parámetros. Con los 56M de Leon 0.1, la fase 8 lo estudia en un terreno acotado, la aritmética, donde el efecto de escribir los pasos se puede medir.
 
 ---
 

@@ -14,8 +14,8 @@ Cada fase vive en su propia carpeta, produce algo ejecutable y medible, y docume
 | 1: GPT mínimo | ✅ | 1,627 bits/char · SDPA ×1,76 |
 | 2: tokenizer BPE | ✅ | 16.384 tokens · 4,19 bytes/token en Wikipedia |
 | 3: arquitectura moderna | ✅ | 1,175 bits/byte (32M, 31 min) · tamaño de Leon 0.1 fijado |
-| 4: preentrenamiento | ⏳ entrenando | 56M, contexto 1024, ~2B tokens, ~15 h · después, extensión a 2048 (~1,5 h) · `control.py start / pause / resume / status / extend` |
-| 5–7: SFT, agente, DPO | — | |
+| 4: preentrenamiento | ✅ | 56M, 2B tokens: **0,897 bits/byte** en Wikipedia, 1,687 en el Quijote, 12,5 h · extensión a contexto 2048: 151M tokens, 1,2 h, la segunda mitad del contexto 0,17 nats por debajo de la primera · `control.py start / pause / resume / status / extend` |
+| 5–8: SFT, agente, DPO, razonamiento | — | |
 
 ## Inicio rápido
 
@@ -87,7 +87,7 @@ llm/
 │   ├── 1_gpt/
 │   ├── 2_tokenizer/
 │   ├── 3_modern/
-│   └── 4_pretrain/     # control.py: start / pause / resume / status   (5_sft … 7_dpo to come)
+│   └── 4_pretrain/     # control.py: start / pause / resume / status   (5_sft … 8_reasoning to come)
 ├── apps/
 │   ├── api/            # Flask: model serving with streaming
 │   └── web/            # React + Vite: ChatGPT-style interface
@@ -111,10 +111,11 @@ llm/
 | 1 | `phases/1_gpt/` | GPT mínimo: atención causal, multi-head, MLP, residuales, LayerNorm | RTX 5060 |
 | 2 | `phases/2_tokenizer/` | Tokenizer BPE propio entrenado con Wikipedia en español | CPU |
 | 3 | `phases/3_modern/` | RoPE, RMSNorm, SwiGLU, GQA, KV cache, bf16 | RTX 5060 |
-| 4 | `phases/4_pretrain/` | Preentrenamiento de Leon 0.1 (~30–60M) en corpus español filtrado | RTX 5060, varias noches |
+| 4 | `phases/4_pretrain/` | Preentrenamiento de Leon 0.1 (~30–60M) en corpus español filtrado | RTX 5060, 12,5 h |
 | 5 | `phases/5_sft/` | SFT conversacional (chat template, loss masking) | RTX 5060 |
 | 6 | `phases/6_agent/` | SFT de tool calling + bucle agéntico | RTX 5060 |
 | 7 | `phases/7_dpo/` | Alineamiento por preferencias (opcional) | RTX 5060 |
+| 8 | `phases/8_reasoning/` | Razonamiento paso a paso en aritmética: SFT con cadenas de pasos y aprendizaje por refuerzo con recompensa verificable (GRPO). Se mide el acierto con y sin pasos | RTX 5060 |
 
 **Chat local** ([`apps/`](apps/README.md)): interfaz web al estilo de ChatGPT, con React y una API en Flask, para probar cualquier checkpoint de Leon desde la fase 3. `python apps/api/app.py` y abrir http://127.0.0.1:8000.
 

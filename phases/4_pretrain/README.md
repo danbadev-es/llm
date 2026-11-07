@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Entrenar el modelo base de Leon 0.1 con toda la Wikipedia en español: **56M de parámetros, contexto 1024 y ~2B de tokens**. Son unas 13–14 h de GPU, repartidas en varias sesiones que se pueden pausar y continuar en cualquier momento.
+Entrenar el modelo base de Leon 0.1 con toda la Wikipedia en español: **56M de parámetros, contexto 1024 y ~2B de tokens**. Son unas 12,5 h de GPU (medidas), que se pueden repartir en varias sesiones y pausar y continuar en cualquier momento.
 
 El resultado (`checkpoints/4_pretrain/leon_0.1/best.pt`) es un modelo que escribe español con fluidez pero aún no conversa. La conversación llega en la fase 5.
 
@@ -110,15 +110,54 @@ Qué hace `extend` (los parámetros están en `EXTEND_ARGS`, en `control.py`):
 
 ## Resultados
 
-*Pendiente de ejecutar.*
+Preentrenamiento y extensión a 2048 terminados el 2026-11-07.
 
 | Métrica | Valor |
 |---|---|
 | Tokens de entrenamiento (Wikipedia completa, tokenizer v2) | 1.357M train + 152M val (1,6M + 178k artículos, 3,90 bytes/token). 2,0B de tokens = 1,47 épocas |
-| Mejor val loss / bits/byte (Wikipedia) | |
-| Bits/byte en el Quijote (fuera de dominio) | |
-| Throughput sostenido / horas totales de GPU | |
-| Sesiones | |
-| Muestra con el prompt fijo | |
-| Extensión a 2048: loss posiciones 0–1023 / 1024–2047, antes y después | |
-| Extensión a 2048: val loss y horas de GPU | |
+| Mejor val loss / bits/byte (Wikipedia) | **2,4218 / 0,897** en el último paso (15.259). Fase 3, 32M: 1,175 bits/byte |
+| Bits/byte en el Quijote (fuera de dominio) | **1,687** (paso 0: 4,055) |
+| Throughput sostenido / horas totales de GPU | **~45.500 tok/s** (pasos 5.000 en adelante; ~43k al principio). **12 h 32 min** de reloj, incluidas compilación y evaluaciones. Pico de VRAM: 2,27 GiB |
+| Sesiones | Una de 12,5 h sin pausas (2026-11-06 23:38 → 2026-11-07 12:10), tras reiniciar desde cero por el cambio a tokenizer v2 |
+| Muestra con el prompt fijo | Ver abajo |
+| Extensión a 2048: loss posiciones 0–1023 / 1024–2047, antes y después | Antes (paso 0, ya con RoPE 50000): 2,854 / 2,788 (−0,07). Después (paso 1.150): **2,732 / 2,560 (−0,17)** |
+| Extensión a 2048: val loss y horas de GPU | Paso 0: 2,580 → final 2,432 (0,900 bits/byte); `best.pt` es el del paso 900, con 2,389 (0,884). Quijote: 1,696 → 1,657 bits/byte. **1 h 12 min** a ~37k tok/s (~33k al final, con la GPU a 87 °C) |
+
+### Extensión a 2048
+
+| Paso | Val loss | Bits/byte Quijote | Loss 0–1023 | Loss 1024–2047 | Diferencia |
+|---|---|---|---|---|---|
+| 0 | 2,580 | 1,696 | 2,854 | 2,788 | −0,07 |
+| 100 | 2,458 | 1,676 | 2,813 | 2,700 | −0,11 |
+| 300 | 2,506 | 1,674 | 2,817 | 2,684 | −0,13 |
+| 500 | 2,476 | 1,670 | 2,772 | 2,622 | −0,15 |
+| 900 | **2,389** | 1,659 | 2,707 | 2,537 | −0,17 |
+| 1.150 | 2,432 | **1,657** | 2,732 | 2,560 | −0,17 |
+
+- **Funciona**: la segunda mitad del contexto queda claramente por debajo de la primera, y la diferencia se duplica (−0,07 → −0,17). Con más texto del mismo artículo detrás, el modelo predice mejor: usa el contexto lejano.
+- **Con RoPE 50000 no hace falta reaprender las posiciones**: ya en el paso 0, sin entrenar, la segunda mitad no se desmorona (sale algo mejor que la primera). Lo que se pierde al cambiar la base de RoPE (val 2,42 → 2,58) se recupera en 100 pasos.
+- **La val loss es ruidosa** (±0,08 entre evaluaciones; en el paso 800 marcó 2,567). Sobre ventanas de 2048 tampoco se compara directamente con la de la base a 1024. La señal más estable es el Quijote, que baja en casi todas las evaluaciones.
+
+### Curva de val loss
+
+| Paso | Tokens | Val loss | Bits/byte Wikipedia | Bits/byte Quijote |
+|---|---|---|---|---|
+| 0 | 0 | 9,839 | 3,584 | 4,055 |
+| 250 | 33M | 4,627 | 1,713 | 2,496 |
+| 1.000 | 131M | 3,288 | 1,217 | 1,988 |
+| 2.250 | 295M | 2,922 | 1,082 | 1,870 |
+| 5.000 | 655M | 2,749 | 1,018 | 1,791 |
+| 8.250 | 1,08B | 2,571 | 0,952 | 1,740 |
+| 12.250 | 1,61B | 2,496 | 0,924 | 1,696 |
+| 15.259 | 2,00B | **2,422** | **0,897** | **1,687** |
+
+Cada evaluación usa pocos batches, así que la val loss oscila ±0,05 entre evaluaciones vecinas (en el paso 14.250 marcó 2,537). La tendencia es lo que cuenta.
+
+### Muestras con "En un lugar de la Mancha"
+
+- **Paso 250**: palabras y concordancias de Wikipedia, sin sentido. *«…las calles de la Iglesia católica, la estación del estado de la localidad estaba dedicado a la población. Según la carretera de 2010, el distrito de 1928 ganó la ciudad de San Carlos…»*
+- **Paso 1.000**: frases gramaticales, pero se repite y no conecta los datos. *«…situado entre la población de Pilsen y la villa de Gruppe. A comienzos de la década de 1970, Pilsen pasó a ser uno de los mejores núcleos de población de Pilsen.»*
+- **Paso 5.000**: párrafos con estructura de artículo. *«…se ha encontrado un fragmento de muralla de la Edad del Bronce que data del año 700 a.C. El actual recinto amurallado se encuentra en la cima del cerro del Poeta.»*
+- **Paso 15.000**: estilo enciclopédico fluido, con nombres inventados pero plausibles. *«…un gran número de habitantes de la zona pueden encontrarse en el municipio de Fuente la Reina… existen otros asentamientos localizados en el municipio como La Torrecilla, el Puerto de la Zarza…»*
+
+**Conclusión**: aprende primero la forma (ortografía, gramática, estilo y estructura) y después, mucho más despacio, la coherencia. Los datos los sigue inventando: es lo esperable con 56M de parámetros. Una muestra suelta es ruido; la del último paso salió peor que la del 15.000 con mejor loss.

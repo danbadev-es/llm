@@ -4,7 +4,16 @@ Hitos del proyecto, de la última fase a la primera. Las cifras son las medidas 
 
 ## Sin publicar
 
+### Resultados
+- **Fase 4: preentrenamiento de Leon 0.1 y extensión a 2048 terminados** (2026-11-07):
+  - 56M de parámetros, contexto 1024, 2,0B de tokens de la Wikipedia en español (15.259 pasos);
+  - **val loss 2,4218 = 0,897 bits/byte** en Wikipedia y 1,687 en el Quijote (fase 3, 32M: 1,175);
+  - una sesión de 12 h 32 min a ~45.500 tok/s, con 2,27 GiB de VRAM;
+  - `checkpoints/4_pretrain/leon_0.1/best.pt`. Escribe español fluido con estilo de Wikipedia, pero inventa los datos.
+  - **Extensión a 2048** (`leon_0.1_ctx2048`, 151M de tokens, 1 h 12 min): la loss en las posiciones 1024–2047 de artículos largos queda 0,17 por debajo de la de 0–1023 (−0,07 antes); Quijote 1,657 bits/byte.
+
 ### Añadido
+- **Fase 8 en la hoja de ruta: razonamiento** paso a paso en aritmética, con SFT de cadenas de pasos y refuerzo con recompensa verificable (GRPO). Explicado en `docs/fundamentos.md`.
 - **Indicador de contexto en la web**: anillo junto al botón de enviar, con el desglose al pasar el ratón (sistema, conversación, mensaje nuevo, reservado para la respuesta, libre) y aviso de lo que quedará fuera. Endpoint `POST /api/context`.
 - **Extensión de contexto a 2048** (`control.py extend`, para después del preentrenamiento):
   - `train.py --init-from --rope-theta --long-fraction`;

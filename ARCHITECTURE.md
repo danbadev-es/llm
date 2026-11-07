@@ -18,7 +18,7 @@ flowchart LR
         P1["1_gpt"]
         P2["2_tokenizer"]
         P3["3_modern"]
-        P4["4_pretrain … 7_dpo<br/>(por venir)"]
+        P4["4_pretrain … 8_reasoning<br/>(por venir)"]
     end
     subgraph product["Producto"]
         L["leon/<br/>paquete Python"]
